@@ -17,17 +17,15 @@ class InteractiveSVGFloorPlan extends StatefulWidget {
 
 class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
   List<SvgPart> parts = [];
-  List<Path> paths = [];
   SvgPart? currentPart;
-  Map<Offset, SvgPart> partMap = {};
-
   Size canvasSize = const Size(3000, 2250); // Default canvas size (3000x2250
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await loadSvgImage(svgImage: widget.plan);
+      parts = await loadSvgImage(svgImage: widget.plan);
+      setState(() {});
     });
   }
 
@@ -38,36 +36,41 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
       body: LayoutBuilder(builder: (context, constraints) {
         final double scaleX = constraints.maxWidth / canvasSize.width;
         final double scaleY = constraints.maxHeight / canvasSize.height;
-
+        // return Transform.scale(
+        //   scale: scale,
+        //   child: CustomPaint(
+        //     painter: SvgPathPainter(parts: parts, currentPart: currentPart),
+        //   ),
+        // );
         return GestureDetector(
           onTapDown: (details) {
-
+            log('Tapped down');
+            log("Position: ${details.localPosition}");
             // scale the local position to the original size
             final localPosition = Offset(
               details.localPosition.dx / scaleX,
               details.localPosition.dy / scaleY,
             );
+            log("Local position: $localPosition");
 
             bool isPartSelected = false;
-            for (var path in paths) {
-              final center = path.getBounds().center;
-              final part = partMap[center]!;
+            for (var part in parts) {
+              final path = parseSvgPathData(part.path);
               if (path.contains(localPosition) && part.id != null) {
                 isPartSelected = true;
                 onPartSelected(part);
                 break;
               }
             }
-
             if (!isPartSelected) {
               currentPart = null;
               setState(() {});
             }
-
           },
-          child: SizedBox(
+          child: Container(
             height: constraints.maxHeight,
             width: constraints.maxWidth,
+            color: Colors.transparent,
             child: Transform(
               transform: Matrix4.identity()..scale(scaleX, scaleY),
               child: CustomPaint(
@@ -88,43 +91,15 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
     });
   }
 
-  Future<void> loadSvgImage({required String svgImage}) async {
-    try {
-      String svgData = await rootBundle.loadString(svgImage);
-      XmlDocument document = XmlDocument.parse(svgData);
-
-      canvasSize = Size(
-        double.parse(document.rootElement.getAttribute('width') ?? '3000'),
-        double.parse(document.rootElement.getAttribute('height') ?? '2250'),
-      );
-
-      List<SvgPart> tempParts = [];
-      // Combine queries to minimize DOM parsing time
-      document.findAllElements('rect').forEach((element) => tempParts.add(parseElementToSvgPart(element, 'rect')));
-      document.findAllElements('polygon').forEach((element) => tempParts.add(parseElementToSvgPart(element, 'polygon')));
-      document.findAllElements('line').forEach((element) => tempParts.add(parseElementToSvgPart(element, 'line')));
-
-      setState(() {
-        parts = tempParts;
-        // Precompute path regions for faster interaction
-        for (var part in parts) {
-          final path = parseSvgPathData(part.path);
-          paths.add(path);
-          partMap[path.getBounds().center] = part;
-        }
-      });
-    } catch (e) {
-      // Handle loading or parsing errors
-      debugPrint('Error loading or parsing SVG: $e');
-    }
-  }
-
   SvgPart parseElementToSvgPart(XmlElement element, String type) {
-    final id = element.getAttribute('id');
-    final fillColor = convertColorToHex(element.getAttribute('fill'));
-    final strokeColor = convertColorToHex(element.getAttribute('stroke'));
-    final strokeWidth = double.parse(element.getAttribute('stroke-width') ?? '2');
-    final name = element.getAttribute('aria-label') ?? '';
+    String? id = element.getAttribute('id');
+    if (id == "null" || id == null || id.isEmpty) {
+      id = null;
+    }
+    final Color fillColor = convertColorToHex(element.getAttribute('fill'));
+    final Color strokeColor = convertColorToHex(element.getAttribute('stroke'));
+    final double strokeWidth = double.parse(element.getAttribute('stroke-width') ?? '2');
+    final String name = element.getAttribute('aria-label') ?? '';
 
     String path;
     switch (type) {
@@ -158,6 +133,30 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
       strokeWidth: strokeWidth,
       name: name,
     );
+  }
+
+  Future<List<SvgPart>> loadSvgImage({required String svgImage}) async {
+    List<SvgPart> parts = [];
+    String generalString = await rootBundle.loadString(svgImage);
+
+    XmlDocument document = XmlDocument.parse(generalString);
+
+    canvasSize = Size(
+      double.parse(document.rootElement.getAttribute('width') ?? '3000'),
+      double.parse(document.rootElement.getAttribute('height') ?? '2250'),
+    );
+
+    // Combine queries to minimize DOM parsing time
+
+    // Handle <rect> elements
+    document.findAllElements('rect').forEach((element) => parts.add(parseElementToSvgPart(element, 'rect')));
+    // Handle <polygon> elements
+    document.findAllElements('polygon').forEach((element) => parts.add(parseElementToSvgPart(element, 'polygon')));
+    // Handle <line> elements
+    document.findAllElements('line').forEach((element) => parts.add(parseElementToSvgPart(element, 'line')));
+
+
+    return parts;
   }
 
 }
