@@ -1,4 +1,5 @@
 library interactive_svg_floor_plan;
+
 import 'dart:developer';
 
 import 'package:flutter/material.dart';
@@ -6,19 +7,27 @@ import 'package:flutter/services.dart';
 import 'package:path_drawing/path_drawing.dart';
 import 'package:xml/xml.dart';
 
+const Color defaultColor = Colors.transparent;
+
 class InteractiveSVGFloorPlan extends StatefulWidget {
   final String plan;
+  final Color highlightColor;
 
-  const InteractiveSVGFloorPlan({super.key, required this.plan});
+  const InteractiveSVGFloorPlan({
+    super.key,
+    required this.plan,
+    this.highlightColor = Colors.red,
+  });
 
   @override
-  State<InteractiveSVGFloorPlan> createState() => _InteractiveSVGFloorPlanState();
+  State<InteractiveSVGFloorPlan> createState() =>
+      _InteractiveSVGFloorPlanState();
 }
 
 class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
   List<SvgPart> parts = [];
   SvgPart? currentPart;
-  Size canvasSize = const Size(3000, 2250); // Default canvas size (3000x2250
+  Size canvasSize = const Size(3000, 2250); // Default canvas size (3000x2250)
 
   @override
   void initState() {
@@ -36,12 +45,6 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
       body: LayoutBuilder(builder: (context, constraints) {
         final double scaleX = constraints.maxWidth / canvasSize.width;
         final double scaleY = constraints.maxHeight / canvasSize.height;
-        // return Transform.scale(
-        //   scale: scale,
-        //   child: CustomPaint(
-        //     painter: SvgPathPainter(parts: parts, currentPart: currentPart),
-        //   ),
-        // );
         return GestureDetector(
           onTapDown: (details) {
             log('Tapped down');
@@ -74,8 +77,11 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
             child: Transform(
               transform: Matrix4.identity()..scale(scaleX, scaleY),
               child: CustomPaint(
-                painter:
-                SvgPathPainter(parts: parts, currentPart: currentPart),
+                painter: SvgPathPainter(
+                  parts: parts,
+                  currentPart: currentPart,
+                  highlightColor: widget.highlightColor,
+                ),
               ),
             ),
           ),
@@ -98,7 +104,8 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
     }
     final Color fillColor = convertColorToHex(element.getAttribute('fill'));
     final Color strokeColor = convertColorToHex(element.getAttribute('stroke'));
-    final double strokeWidth = double.parse(element.getAttribute('stroke-width') ?? '2');
+    final double strokeWidth =
+        double.parse(element.getAttribute('stroke-width') ?? '2');
     final String name = element.getAttribute('aria-label') ?? '';
 
     String path;
@@ -149,16 +156,17 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
     // Combine queries to minimize DOM parsing time
 
     // Handle <rect> elements
-    document.findAllElements('rect').forEach((element) => parts.add(parseElementToSvgPart(element, 'rect')));
+    document.findAllElements('rect').forEach(
+        (element) => parts.add(parseElementToSvgPart(element, 'rect')));
     // Handle <polygon> elements
-    document.findAllElements('polygon').forEach((element) => parts.add(parseElementToSvgPart(element, 'polygon')));
+    document.findAllElements('polygon').forEach(
+        (element) => parts.add(parseElementToSvgPart(element, 'polygon')));
     // Handle <line> elements
-    document.findAllElements('line').forEach((element) => parts.add(parseElementToSvgPart(element, 'line')));
-
+    document.findAllElements('line').forEach(
+        (element) => parts.add(parseElementToSvgPart(element, 'line')));
 
     return parts;
   }
-
 }
 
 class SvgPart {
@@ -330,7 +338,7 @@ final colorMap = {
 
 Color convertColorToHex(String? color) {
   if (color == null) {
-    return Colors.transparent;
+    return defaultColor;
   }
 
   if (color.startsWith('#')) {
@@ -367,16 +375,18 @@ Color convertColorToHex(String? color) {
     return Color(int.parse(color, radix: 16));
   }
 
-  return Colors.transparent; // Default to black if color format is unknown
+  return defaultColor; // Default to black if color format is unknown
 }
 
 class SvgPathPainter extends CustomPainter {
   final List<SvgPart> parts;
   final SvgPart? currentPart;
+  final Color highlightColor;
 
   SvgPathPainter({
     required this.parts,
     this.currentPart,
+    required this.highlightColor,
   });
 
   @override
@@ -386,7 +396,9 @@ class SvgPathPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = currentPart == null
             ? part.strokeWidth
-            : (currentPart?.id == part.id ? part.strokeWidth * 2.0 : part.strokeWidth)
+            : (currentPart?.id == part.id
+                ? part.strokeWidth * 2.0
+                : part.strokeWidth)
         ..color = part.strokeColor;
 
       final path = parseSvgPathData(part.path);
@@ -396,7 +408,10 @@ class SvgPathPainter extends CustomPainter {
         ..style = PaintingStyle.fill
         ..color = currentPart == null
             ? part.fillColor
-            : (currentPart?.id == part.id ? Colors.red : part.fillColor.withOpacity(part.fillColor == Colors.transparent ? 0 : .5));
+            : (currentPart?.id == part.id
+                ? highlightColor
+                : part.fillColor
+                    .withOpacity(part.fillColor == defaultColor ? 0 : .5));
 
       canvas.drawPath(path, fillPaint);
     }
