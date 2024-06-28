@@ -1,7 +1,5 @@
 library interactive_svg_floor_plan;
 
-import 'dart:developer';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_drawing/path_drawing.dart';
@@ -120,12 +118,32 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
         final points = element.getAttribute('points') ?? '';
         path = 'M${points.replaceAll(' ', ' L')} Z';
         break;
+      case 'polyline':
+        final points = element.getAttribute('points') ?? '';
+        path = 'M${points.replaceAll(' ', ' L')}';
+        break;
       case 'line':
         final x1 = element.getAttribute('x1') ?? '0';
         final y1 = element.getAttribute('y1') ?? '0';
         final x2 = element.getAttribute('x2') ?? '0';
         final y2 = element.getAttribute('y2') ?? '0';
         path = 'M$x1,$y1 L$x2,$y2';
+        break;
+      case 'circle':
+        final cx = double.tryParse(element.getAttribute('cx') ?? '0') ?? 0;
+        final cy = double.tryParse(element.getAttribute('cy') ?? '0') ?? 0;
+        final r = double.tryParse(element.getAttribute('r') ?? '0') ?? 0;
+        path = 'M${cx + r},$cy A$r,$r 0 1,1 ${cx - r},$cy A$r,$r 0 1,1 ${cx + r},$cy';
+        break;
+      case 'ellipse':
+        final cx = double.tryParse(element.getAttribute('cx') ?? '0') ?? 0;
+        final cy = double.tryParse(element.getAttribute('cy') ?? '0') ?? 0;
+        final rx = double.tryParse(element.getAttribute('rx') ?? '0') ?? 0;
+        final ry = double.tryParse(element.getAttribute('ry') ?? '0') ?? 0;
+        path = 'M${cx + rx},$cy A$rx,$ry 0 1,1 ${cx - rx},$cy A$rx,$ry 0 1,1 ${cx + rx},$cy';
+        break;
+      case 'path':
+        path = element.getAttribute('d') ?? '';
         break;
       default:
         path = '';
