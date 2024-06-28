@@ -12,11 +12,13 @@ const Color defaultColor = Colors.transparent;
 class InteractiveSVGFloorPlan extends StatefulWidget {
   final String plan;
   final Color highlightColor;
+  final double highlightStrokeWeight;
 
   const InteractiveSVGFloorPlan({
     super.key,
     required this.plan,
     this.highlightColor = Colors.red,
+    this.highlightStrokeWeight = 2.0,
   });
 
   @override
@@ -47,14 +49,11 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
         final double scaleY = constraints.maxHeight / canvasSize.height;
         return GestureDetector(
           onTapDown: (details) {
-            log('Tapped down');
-            log("Position: ${details.localPosition}");
             // scale the local position to the original size
             final localPosition = Offset(
               details.localPosition.dx / scaleX,
               details.localPosition.dy / scaleY,
             );
-            log("Local position: $localPosition");
 
             bool isPartSelected = false;
             for (var part in parts) {
@@ -81,6 +80,7 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
                   parts: parts,
                   currentPart: currentPart,
                   highlightColor: widget.highlightColor,
+                  highlightStrokeWeight: widget.highlightStrokeWeight,
                 ),
               ),
             ),
@@ -93,7 +93,6 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
   void onPartSelected(SvgPart part) {
     setState(() {
       currentPart = part;
-      log('Selected part: ${part.toString()}');
     });
   }
 
@@ -382,11 +381,13 @@ class SvgPathPainter extends CustomPainter {
   final List<SvgPart> parts;
   final SvgPart? currentPart;
   final Color highlightColor;
+  final double highlightStrokeWeight;
 
   SvgPathPainter({
     required this.parts,
     this.currentPart,
     required this.highlightColor,
+    required this.highlightStrokeWeight,
   });
 
   @override
@@ -397,7 +398,7 @@ class SvgPathPainter extends CustomPainter {
         ..strokeWidth = currentPart == null
             ? part.strokeWidth
             : (currentPart?.id == part.id
-                ? part.strokeWidth * 2.0
+                ? part.strokeWidth * highlightStrokeWeight
                 : part.strokeWidth)
         ..color = part.strokeColor;
 
