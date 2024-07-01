@@ -33,6 +33,29 @@ class SvgPart {
   String toString() {
     return 'SvgPart{id: $id, path: $path, fillColor: $fillColor, strokeColor: $strokeColor, name: $name}';
   }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+
+    return other is SvgPart &&
+        other.id == id &&
+        other.path == path &&
+        other.fillColor == fillColor &&
+        other.strokeColor == strokeColor &&
+        other.strokeWidth == strokeWidth &&
+        other.name == name;
+  }
+
+  @override
+  int get hashCode {
+    return id.hashCode ^
+    path.hashCode ^
+    fillColor.hashCode ^
+    strokeColor.hashCode ^
+    strokeWidth.hashCode ^
+    name.hashCode;
+  }
 }
 
 final colorMap = {
@@ -226,6 +249,9 @@ class InteractiveSVGFloorPlan extends StatefulWidget {
   final Color highlightColor;
   final double highlightStrokeWeight;
   final double fillOpacity;
+  final void Function(SvgPart part) onPartSelected;
+  final List<String> selectedParts;
+  final bool multiSelect;
 
   const InteractiveSVGFloorPlan({
     super.key,
@@ -233,6 +259,9 @@ class InteractiveSVGFloorPlan extends StatefulWidget {
     this.highlightColor = Colors.red,
     this.highlightStrokeWeight = 2.0,
     this.fillOpacity = 1.0,
+    required this.onPartSelected,
+    this.selectedParts = const [],
+    this.multiSelect = false,
   });
 
   @override
@@ -242,12 +271,21 @@ class InteractiveSVGFloorPlan extends StatefulWidget {
 
 class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
   List<SvgPart> parts = [];
-  SvgPart? currentPart;
+
+  // Selection rectangle state variables
+  Offset? _startSelection;
+  Offset? _endSelection;
+  bool _isSelecting = false;
+  List<SvgPart> _selectedParts = [];
+
   // Default canvas size (3000x2250)
   Size canvasSize = const Size(3000, 2250);
 
   final TransformationController _transformationController =
   TransformationController();
+
+  double scaleX = 1.0;
+  double scaleY = 1.0;
 
   @override
   void initState() {
@@ -258,6 +296,7 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
     });
   }
 
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -266,74 +305,199 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
         double maxWidth = constraints.maxWidth - 50;
         double maxHeight = constraints.maxHeight - 50;
 
-        double scaleX = maxWidth / canvasSize.width;
-        double scaleY = maxHeight / canvasSize.height;
-        double translateY = maxHeight / -3.25;
+        scaleX = maxWidth / canvasSize.width;
+        scaleY = maxHeight / canvasSize.height;
 
-        if (scaleY > scaleX) {
-          scaleY = scaleX;
-        }
+        if (scaleY > scaleX) scaleY = scaleX;
 
-        double translateX = (maxWidth / scaleX) / -2;
-        translateY = (maxHeight - canvasSize.height) / -1;
-
+        double translateY = canvasSize.height * .02;
+        double translateX = canvasSize.width * .02;
 
         return GestureDetector(
-          onTapDown: (details) {
-            Vector3 translation = _transformationController.value.getTranslation();
-            double newScaleFactor = _transformationController.value.getMaxScaleOnAxis();
-
-            // scale the local position to the original size
-            final localPosition = Offset(
-              ((details.localPosition.dx / scaleX) - (translation.x * scaleX)) / newScaleFactor,
-              ((details.localPosition.dy / scaleY) - (translation.y * scaleY)) / newScaleFactor,
-            );
-
-            bool isPartSelected = false;
-            for (var part in parts) {
-              final path = parseSvgPathData(part.path);
-              if (path.contains(localPosition) && part.id != null) {
-                isPartSelected = true;
-                onPartSelected(part);
-                break;
-              }
-            }
-            if (!isPartSelected) {
-              currentPart = null;
-              setState(() {});
-            }
+          onTapDown: widget.multiSelect ? _multiSelectTapDown : _singleSelectTapDown,
+          onPanUpdate: (details) {
+            if (!widget.multiSelect) return;
+            setState(() {
+              _endSelection = details.localPosition;
+            });
           },
-          child: Container(
-            height: constraints.maxHeight,
-            width: constraints.maxWidth,
-            color: Colors.transparent,
-            child: InteractiveViewer(
-              boundaryMargin: const EdgeInsets.all(double.infinity),
-              minScale: .75,
-              maxScale: 5,
-              transformationController: _transformationController,
-              child: Transform(
-                transform: Matrix4.identity()..scale(scaleX, scaleY),
-                child: CustomPaint(
-                  painter: SvgPathPainter(
-                    parts: parts,
-                    currentPart: currentPart,
-                    highlightColor: widget.highlightColor,
-                    highlightStrokeWeight: widget.highlightStrokeWeight,
+          onHorizontalDragUpdate: (details) {
+            if (!widget.multiSelect) return;
+            setState(() {
+              _endSelection = details.localPosition;
+            });
+          },
+          onHorizontalDragEnd: (details) {
+            if (!widget.multiSelect) return;
+            _selectPartsInRect(_getSelectionRect());
+            setState(() {
+              _startSelection = null;
+              _endSelection = null;
+              _isSelecting = false;
+            });
+            log("Pan Ended");
+          },
+          onPanEnd: (details) {
+            if (!widget.multiSelect) return;
+            _selectPartsInRect(_getSelectionRect());
+            setState(() {
+              _startSelection = null;
+              _endSelection = null;
+              _isSelecting = false;
+            });
+            log("Pan Ended");
+          },
+          // onPanStart: (details) {
+          //   if (!widget.multiSelect) return;
+          //   log("Pan Started");
+          //   setState(() {
+          //     _isSelecting = true;
+          //     _startSelection = details.localPosition;
+          //     _endSelection = details.localPosition;
+          //   });
+          // },
+          // onPanUpdate: (details) {
+          //   if (!widget.multiSelect) return;
+          //   setState(() {
+          //     _endSelection = details.localPosition;
+          //   });
+          // },
+          // onPanEnd: (details) {
+          //   if (!widget.multiSelect) return;
+          //   _selectPartsInRect(_getSelectionRect());
+          //   setState(() {
+          //     _startSelection = null;
+          //     _endSelection = null;
+          //     _isSelecting = false;
+          //   });
+          //   log("Pan Ended");
+          // },
+          child: Stack(
+            children: [
+              Container(
+                height: constraints.maxHeight,
+                width: constraints.maxWidth,
+                color: Colors.transparent,
+                child: InteractiveViewer(
+                  boundaryMargin: const EdgeInsets.all(double.infinity),
+                  minScale: .75,
+                  maxScale: 5,
+                  panEnabled: !_isSelecting,
+                  // scaleEnabled: !widget.multiSelect,
+                  panAxis: PanAxis.aligned,
+                  transformationController: _transformationController,
+                  child: Transform(
+                    transform: Matrix4.identity()..scale(scaleX, scaleY)..translate(translateX, translateY),
+                    child: CustomPaint(
+                      painter: SvgPathPainter(
+                        parts: parts,
+                        selectedParts: parts
+                            .where((part) => widget.selectedParts.contains(part.id))
+                            .toList(),
+                        highlightColor: widget.highlightColor,
+                        highlightStrokeWeight: widget.highlightStrokeWeight,
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
+              if (_isSelecting && _startSelection != null && _endSelection != null && widget.multiSelect) ... [
+                CustomPaint(
+                  painter: SelectionRectPainter(
+                    rect: _getSelectionRect(),
+                  ),
+                ),
+              ],
+            ],
           ),
         );
       }),
     );
   }
 
-  void onPartSelected(SvgPart part) {
+  void _singleSelectTapDown(details) {
+    if (widget.multiSelect) return;
+    Vector3 translation =
+    _transformationController.value.getTranslation();
+    double newScaleFactor =
+    _transformationController.value.getMaxScaleOnAxis();
+
+    // scale the local position to the original size
+    final localPosition = Offset(
+      ((details.localPosition.dx / scaleX) - (translation.x * scaleX)) /
+          newScaleFactor,
+      ((details.localPosition.dy / scaleY) - (translation.y * scaleY)) /
+          newScaleFactor,
+    );
+
+    log("Local Position: $localPosition");
+
+    bool isPartSelected = false;
+    for (var part in parts) {
+      final path = parseSvgPathData(part.path);
+      if (path.contains(localPosition) && part.id != null) {
+        isPartSelected = true;
+        onPartSelected(part);
+        break;
+      }
+    }
+    // if (!isPartSelected) {
+    //   setState(() {});
+    // }
+  }
+
+  void _multiSelectTapDown(details) {
+    if (!widget.multiSelect) return;
+    log("Pan Started");
     setState(() {
-      currentPart = part;
+      _isSelecting = true;
+      _startSelection = details.localPosition;
+      _endSelection = details.localPosition;
     });
+  }
+
+  Rect _getSelectionRect() {
+    if (_startSelection == null || _endSelection == null) return Rect.zero;
+    return Rect.fromPoints(_startSelection!, _endSelection!);
+  }
+
+  void _selectPartsInRect(Rect selectionRect) {
+
+    Vector3 translation =
+    _transformationController.value.getTranslation();
+    double newScaleFactor =
+    _transformationController.value.getMaxScaleOnAxis();
+
+    Offset start = Offset(
+      ((selectionRect.left / scaleX) - (translation.x * scaleX)) / newScaleFactor,
+      ((selectionRect.top / scaleY) - (translation.y * scaleY)) / newScaleFactor,
+    );
+    Offset end = Offset(
+      ((selectionRect.right / scaleX) - (translation.x * scaleX)) / newScaleFactor,
+      ((selectionRect.bottom / scaleY) - (translation.y * scaleY)) / newScaleFactor,
+    );
+
+    Rect newRect = Rect.fromPoints(start, end);
+
+    List<SvgPart> selected = [];
+    for (var part in parts) {
+      final path = parseSvgPathData(part.path);
+      if (path.getBounds().overlaps(newRect)) {
+        selected.add(part);
+      }
+    }
+    setState(() {
+      _selectedParts = selected;
+    });
+    for (var element in _selectedParts) {
+      widget.onPartSelected(element);
+    }
+  }
+
+  void onPartSelected(SvgPart part) {
+    widget.onPartSelected(part);
+
+    setState(() {});
   }
 
   SvgPart parseElementToSvgPart(XmlElement element, String type) {
@@ -348,6 +512,7 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
     final Color strokeColor = convertColorToHex(element.getAttribute('stroke'));
     final double strokeWidth =
     double.parse(element.getAttribute('stroke-width') ?? '2');
+    log('Stroke Width: $strokeWidth');
     final String name = element.getAttribute('aria-label') ?? '';
 
     String path;
@@ -466,13 +631,13 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
 
 class SvgPathPainter extends CustomPainter {
   final List<SvgPart> parts;
-  final SvgPart? currentPart;
+  final List<SvgPart> selectedParts;
   final Color highlightColor;
   final double highlightStrokeWeight;
 
   SvgPathPainter({
     required this.parts,
-    this.currentPart,
+    this.selectedParts = const [],
     required this.highlightColor,
     required this.highlightStrokeWeight,
   });
@@ -482,18 +647,18 @@ class SvgPathPainter extends CustomPainter {
     for (var part in parts) {
       final strokePaint = Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = currentPart == null
+        ..strokeWidth = selectedParts.isEmpty
             ? part.strokeWidth
-            : (currentPart?.id == part.id
+            : (selectedParts.contains(part)
             ? part.strokeWidth * highlightStrokeWeight
             : part.strokeWidth)
         ..color = part.strokeColor;
 
       final fillPaint = Paint()
         ..style = PaintingStyle.fill
-        ..color = currentPart == null
+        ..color = selectedParts.isEmpty
             ? part.fillColor
-            : (currentPart?.id == part.id ? highlightColor : part.fillColor);
+            : (selectedParts.contains(part) ? highlightColor : part.fillColor);
 
       try {
         final path = parseSvgPathData(part.path);
@@ -503,6 +668,32 @@ class SvgPathPainter extends CustomPainter {
         log(e.toString(), name: part.type.toString());
       }
     }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) {
+    return true;
+  }
+}
+
+class SelectionRectPainter extends CustomPainter {
+  final Rect rect;
+
+  SelectionRectPainter({required this.rect});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.blue.withOpacity(0.3)
+      ..style = PaintingStyle.fill;
+
+    final borderPaint = Paint()
+      ..color = Colors.blue
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+
+    canvas.drawRect(rect, paint);
+    canvas.drawRect(rect, borderPaint);
   }
 
   @override
