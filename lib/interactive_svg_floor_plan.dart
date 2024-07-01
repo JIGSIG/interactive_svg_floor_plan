@@ -1,190 +1,14 @@
 library interactive_svg_floor_plan;
 
+import 'dart:developer';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_drawing/path_drawing.dart';
+import 'package:vector_math/vector_math_64.dart' show Vector3;
 import 'package:xml/xml.dart';
 
 const Color defaultColor = Colors.transparent;
-
-class InteractiveSVGFloorPlan extends StatefulWidget {
-  final String plan;
-  final Color highlightColor;
-  final double highlightStrokeWeight;
-
-  const InteractiveSVGFloorPlan({
-    super.key,
-    required this.plan,
-    this.highlightColor = Colors.red,
-    this.highlightStrokeWeight = 2.0,
-  });
-
-  @override
-  State<InteractiveSVGFloorPlan> createState() =>
-      _InteractiveSVGFloorPlanState();
-}
-
-class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
-  List<SvgPart> parts = [];
-  SvgPart? currentPart;
-  Size canvasSize = const Size(3000, 2250); // Default canvas size (3000x2250)
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      parts = await loadSvgImage(svgImage: widget.plan);
-      setState(() {});
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: LayoutBuilder(builder: (context, constraints) {
-        final double scaleX = constraints.maxWidth / canvasSize.width;
-        final double scaleY = constraints.maxHeight / canvasSize.height;
-        return GestureDetector(
-          onTapDown: (details) {
-            // scale the local position to the original size
-            final localPosition = Offset(
-              details.localPosition.dx / scaleX,
-              details.localPosition.dy / scaleY,
-            );
-
-            bool isPartSelected = false;
-            for (var part in parts) {
-              final path = parseSvgPathData(part.path);
-              if (path.contains(localPosition) && part.id != null) {
-                isPartSelected = true;
-                onPartSelected(part);
-                break;
-              }
-            }
-            if (!isPartSelected) {
-              currentPart = null;
-              setState(() {});
-            }
-          },
-          child: Container(
-            height: constraints.maxHeight,
-            width: constraints.maxWidth,
-            color: Colors.transparent,
-            child: Transform(
-              transform: Matrix4.identity()..scale(scaleX, scaleY),
-              child: CustomPaint(
-                painter: SvgPathPainter(
-                  parts: parts,
-                  currentPart: currentPart,
-                  highlightColor: widget.highlightColor,
-                  highlightStrokeWeight: widget.highlightStrokeWeight,
-                ),
-              ),
-            ),
-          ),
-        );
-      }),
-    );
-  }
-
-  void onPartSelected(SvgPart part) {
-    setState(() {
-      currentPart = part;
-    });
-  }
-
-  SvgPart parseElementToSvgPart(XmlElement element, String type) {
-    String? id = element.getAttribute('id');
-    if (id == "null" || id == null || id.isEmpty) {
-      id = null;
-    }
-    final Color fillColor = convertColorToHex(element.getAttribute('fill'));
-    final Color strokeColor = convertColorToHex(element.getAttribute('stroke'));
-    final double strokeWidth =
-        double.parse(element.getAttribute('stroke-width') ?? '2');
-    final String name = element.getAttribute('aria-label') ?? '';
-
-    String path;
-    switch (type) {
-      case 'rect':
-        final x = element.getAttribute('x') ?? '0';
-        final y = element.getAttribute('y') ?? '0';
-        final width = element.getAttribute('width') ?? '0';
-        final height = element.getAttribute('height') ?? '0';
-        path = 'M$x,$y h$width v$height h-$width Z';
-        break;
-      case 'polygon':
-        final points = element.getAttribute('points') ?? '';
-        path = 'M${points.replaceAll(' ', ' L')} Z';
-        break;
-      case 'polyline':
-        final points = element.getAttribute('points') ?? '';
-        path = 'M${points.replaceAll(' ', ' L')}';
-        break;
-      case 'line':
-        final x1 = element.getAttribute('x1') ?? '0';
-        final y1 = element.getAttribute('y1') ?? '0';
-        final x2 = element.getAttribute('x2') ?? '0';
-        final y2 = element.getAttribute('y2') ?? '0';
-        path = 'M$x1,$y1 L$x2,$y2';
-        break;
-      case 'circle':
-        final cx = double.tryParse(element.getAttribute('cx') ?? '0') ?? 0;
-        final cy = double.tryParse(element.getAttribute('cy') ?? '0') ?? 0;
-        final r = double.tryParse(element.getAttribute('r') ?? '0') ?? 0;
-        path = 'M${cx + r},$cy A$r,$r 0 1,1 ${cx - r},$cy A$r,$r 0 1,1 ${cx + r},$cy';
-        break;
-      case 'ellipse':
-        final cx = double.tryParse(element.getAttribute('cx') ?? '0') ?? 0;
-        final cy = double.tryParse(element.getAttribute('cy') ?? '0') ?? 0;
-        final rx = double.tryParse(element.getAttribute('rx') ?? '0') ?? 0;
-        final ry = double.tryParse(element.getAttribute('ry') ?? '0') ?? 0;
-        path = 'M${cx + rx},$cy A$rx,$ry 0 1,1 ${cx - rx},$cy A$rx,$ry 0 1,1 ${cx + rx},$cy';
-        break;
-      case 'path':
-        path = element.getAttribute('d') ?? '';
-        break;
-      default:
-        path = '';
-    }
-
-    return SvgPart(
-      id: id,
-      path: path,
-      fillColor: fillColor,
-      strokeColor: strokeColor,
-      strokeWidth: strokeWidth,
-      name: name,
-    );
-  }
-
-  Future<List<SvgPart>> loadSvgImage({required String svgImage}) async {
-    List<SvgPart> parts = [];
-    String generalString = await rootBundle.loadString(svgImage);
-
-    XmlDocument document = XmlDocument.parse(generalString);
-
-    canvasSize = Size(
-      double.parse(document.rootElement.getAttribute('width') ?? '3000'),
-      double.parse(document.rootElement.getAttribute('height') ?? '2250'),
-    );
-
-    // Combine queries to minimize DOM parsing time
-
-    // Handle <rect> elements
-    document.findAllElements('rect').forEach(
-        (element) => parts.add(parseElementToSvgPart(element, 'rect')));
-    // Handle <polygon> elements
-    document.findAllElements('polygon').forEach(
-        (element) => parts.add(parseElementToSvgPart(element, 'polygon')));
-    // Handle <line> elements
-    document.findAllElements('line').forEach(
-        (element) => parts.add(parseElementToSvgPart(element, 'line')));
-
-    return parts;
-  }
-}
 
 class SvgPart {
   final String? id;
@@ -193,6 +17,7 @@ class SvgPart {
   final Color strokeColor;
   final double strokeWidth;
   final String name;
+  final String? type;
 
   SvgPart({
     required this.id,
@@ -201,6 +26,7 @@ class SvgPart {
     required this.strokeColor,
     this.strokeWidth = 2.0,
     required this.name,
+    this.type,
   });
 
   @override
@@ -395,6 +221,251 @@ Color convertColorToHex(String? color) {
   return defaultColor; // Default to black if color format is unknown
 }
 
+class InteractiveSVGFloorPlan extends StatefulWidget {
+  final String plan;
+  final Color highlightColor;
+  final double highlightStrokeWeight;
+  final double fillOpacity;
+
+  const InteractiveSVGFloorPlan({
+    super.key,
+    required this.plan,
+    this.highlightColor = Colors.red,
+    this.highlightStrokeWeight = 2.0,
+    this.fillOpacity = 1.0,
+  });
+
+  @override
+  State<InteractiveSVGFloorPlan> createState() =>
+      _InteractiveSVGFloorPlanState();
+}
+
+class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
+  List<SvgPart> parts = [];
+  SvgPart? currentPart;
+  // Default canvas size (3000x2250)
+  Size canvasSize = const Size(3000, 2250);
+
+  final TransformationController _transformationController =
+  TransformationController();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await loadSvgImage(svgImage: widget.plan);
+      setState(() {});
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: LayoutBuilder(builder: (context, constraints) {
+        double maxWidth = constraints.maxWidth - 50;
+        double maxHeight = constraints.maxHeight - 50;
+
+        double scaleX = maxWidth / canvasSize.width;
+        double scaleY = maxHeight / canvasSize.height;
+        double translateY = maxHeight / -3.25;
+
+        if (scaleY > scaleX) {
+          scaleY = scaleX;
+        }
+
+        double translateX = (maxWidth / scaleX) / -2;
+        translateY = (maxHeight - canvasSize.height) / -1;
+
+
+        return GestureDetector(
+          onTapDown: (details) {
+            Vector3 translation = _transformationController.value.getTranslation();
+            double newScaleFactor = _transformationController.value.getMaxScaleOnAxis();
+
+            // scale the local position to the original size
+            final localPosition = Offset(
+              ((details.localPosition.dx / scaleX) - (translation.x * scaleX)) / newScaleFactor,
+              ((details.localPosition.dy / scaleY) - (translation.y * scaleY)) / newScaleFactor,
+            );
+
+            log("Local Position: $localPosition");
+
+            bool isPartSelected = false;
+            for (var part in parts) {
+              final path = parseSvgPathData(part.path);
+              if (path.contains(localPosition) && part.id != null) {
+                isPartSelected = true;
+                onPartSelected(part);
+                break;
+              }
+            }
+            if (!isPartSelected) {
+              currentPart = null;
+              setState(() {});
+            }
+          },
+          child: Container(
+            height: constraints.maxHeight,
+            width: constraints.maxWidth,
+            color: Colors.transparent,
+            child: InteractiveViewer(
+              boundaryMargin: const EdgeInsets.all(double.infinity),
+              minScale: .75,
+              maxScale: 5,
+              transformationController: _transformationController,
+              child: Transform(
+                transform: Matrix4.identity()..scale(scaleX, scaleY),
+                child: CustomPaint(
+                  painter: SvgPathPainter(
+                    parts: parts,
+                    currentPart: currentPart,
+                    highlightColor: widget.highlightColor,
+                    highlightStrokeWeight: widget.highlightStrokeWeight,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      }),
+    );
+  }
+
+  void onPartSelected(SvgPart part) {
+    setState(() {
+      currentPart = part;
+    });
+  }
+
+  SvgPart parseElementToSvgPart(XmlElement element, String type) {
+    String? id = element.getAttribute('id');
+    if (id == "null" || id == null || id.isEmpty) {
+      id = null;
+    }
+    Color fillColor = convertColorToHex(element.getAttribute('fill'));
+    if (fillColor != Colors.transparent && id != null) {
+      fillColor = fillColor.withOpacity(widget.fillOpacity);
+    }
+    final Color strokeColor = convertColorToHex(element.getAttribute('stroke'));
+    final double strokeWidth =
+    double.parse(element.getAttribute('stroke-width') ?? '2');
+    final String name = element.getAttribute('aria-label') ?? '';
+
+    String path;
+    switch (type) {
+      case 'rect':
+        final x = element.getAttribute('x') ?? '0';
+        final y = element.getAttribute('y') ?? '0';
+        final width = element.getAttribute('width') ?? '0';
+        final height = element.getAttribute('height') ?? '0';
+        path = 'M$x,$y h$width v$height h-$width Z';
+        break;
+      case 'polygon':
+        final points = element.getAttribute('points') ?? '';
+        path =
+        'M${points.split(' ').map((e) => e.replaceAll(',', ' ')).join(' L')} Z';
+        break;
+        final pointList =
+        points.split(RegExp(r'[\s,]+')).where((s) => s.isNotEmpty).toList();
+        if (pointList.length % 2 != 0) {
+          log('Invalid points attribute in polygon element: $points');
+          path = '';
+        } else {
+          path =
+          'M${pointList.asMap().entries.map((e) => '${e.value}${e.key % 2 == 0 ? ',' : ' '}').join()} Z';
+        }
+        break;
+      case 'polyline':
+        final points = element.getAttribute('points') ?? '';
+        final pointList =
+        points.split(RegExp(r'[\s,]+')).where((s) => s.isNotEmpty).toList();
+        if (pointList.length % 2 != 0) {
+          log('Invalid points attribute in polyline element: $points');
+          path = '';
+        } else {
+          path =
+          'M${pointList.asMap().entries.map((e) => '${e.value}${e.key % 2 == 0 ? ',' : ' '}').join()}';
+        }
+        break;
+      case 'line':
+        final x1 = element.getAttribute('x1') ?? '0';
+        final y1 = element.getAttribute('y1') ?? '0';
+        final x2 = element.getAttribute('x2') ?? '0';
+        final y2 = element.getAttribute('y2') ?? '0';
+        path = 'M$x1,$y1 L$x2,$y2';
+        break;
+      case 'circle':
+        final cx = double.tryParse(element.getAttribute('cx') ?? '0') ?? 0;
+        final cy = double.tryParse(element.getAttribute('cy') ?? '0') ?? 0;
+        final r = double.tryParse(element.getAttribute('r') ?? '0') ?? 0;
+        path =
+        'M${cx + r},$cy A$r,$r 0 1,1 ${cx - r},$cy A$r,$r 0 1,1 ${cx + r},$cy';
+        break;
+      case 'ellipse':
+        final cx = double.tryParse(element.getAttribute('cx') ?? '0') ?? 0;
+        final cy = double.tryParse(element.getAttribute('cy') ?? '0') ?? 0;
+        final rx = double.tryParse(element.getAttribute('rx') ?? '0') ?? 0;
+        final ry = double.tryParse(element.getAttribute('ry') ?? '0') ?? 0;
+        path =
+        'M${cx + rx},$cy A$rx,$ry 0 1,1 ${cx - rx},$cy A$rx,$ry 0 1,1 ${cx + rx},$cy';
+        break;
+      case 'path':
+        path = element.getAttribute('d') ?? '';
+        break;
+      default:
+        path = '';
+    }
+
+    return SvgPart(
+      id: id ?? (parts.isEmpty ? null : path),
+      path: path,
+      fillColor: fillColor,
+      strokeColor: strokeColor,
+      strokeWidth: strokeWidth,
+      name: name,
+      type: type,
+    );
+  }
+
+  Future<List<SvgPart>> loadSvgImage({required String svgImage}) async {
+    String generalString = await rootBundle.loadString(svgImage);
+
+    XmlDocument document = XmlDocument.parse(generalString);
+
+    canvasSize = Size(
+      double.parse(document.rootElement.getAttribute('width') ?? '3000'),
+      double.parse(document.rootElement.getAttribute('height') ?? '2250'),
+    );
+
+    // Combine queries to minimize DOM parsing time
+
+    // Handle <rect> elements
+    document.findAllElements('rect').forEach(
+            (element) => parts.add(parseElementToSvgPart(element, 'rect')));
+    // Handle <polygon> elements
+    document.findAllElements('polygon').forEach(
+            (element) => parts.add(parseElementToSvgPart(element, 'polygon')));
+    // Handle <polyline> elements
+    document.findAllElements('polyline').forEach(
+            (element) => parts.add(parseElementToSvgPart(element, 'polyline')));
+    // Handle <line> elements
+    document.findAllElements('line').forEach(
+            (element) => parts.add(parseElementToSvgPart(element, 'line')));
+    // Handle <circle> elements
+    document.findAllElements('circle').forEach(
+            (element) => parts.add(parseElementToSvgPart(element, 'circle')));
+    // Handle <ellipse> elements
+    document.findAllElements('ellipse').forEach(
+            (element) => parts.add(parseElementToSvgPart(element, 'ellipse')));
+    // Handle <path> elements
+    document.findAllElements('path').forEach(
+            (element) => parts.add(parseElementToSvgPart(element, 'path')));
+
+    return parts;
+  }
+}
+
 class SvgPathPainter extends CustomPainter {
   final List<SvgPart> parts;
   final SvgPart? currentPart;
@@ -411,28 +482,28 @@ class SvgPathPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     for (var part in parts) {
-      final paint = Paint()
+      final strokePaint = Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = currentPart == null
             ? part.strokeWidth
             : (currentPart?.id == part.id
-                ? part.strokeWidth * highlightStrokeWeight
-                : part.strokeWidth)
+            ? part.strokeWidth * highlightStrokeWeight
+            : part.strokeWidth)
         ..color = part.strokeColor;
-
-      final path = parseSvgPathData(part.path);
-      canvas.drawPath(path, paint);
 
       final fillPaint = Paint()
         ..style = PaintingStyle.fill
         ..color = currentPart == null
             ? part.fillColor
-            : (currentPart?.id == part.id
-                ? highlightColor
-                : part.fillColor
-                    .withOpacity(part.fillColor == defaultColor ? 0 : .5));
+            : (currentPart?.id == part.id ? highlightColor : part.fillColor);
 
-      canvas.drawPath(path, fillPaint);
+      try {
+        final path = parseSvgPathData(part.path);
+        canvas.drawPath(path, strokePaint);
+        canvas.drawPath(path, fillPaint);
+      } catch (e) {
+        log(e.toString(), name: part.type.toString());
+      }
     }
   }
 
