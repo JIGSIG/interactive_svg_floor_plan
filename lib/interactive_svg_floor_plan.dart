@@ -289,8 +289,6 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
               ((details.localPosition.dy / scaleY) - (translation.y * scaleY)) / newScaleFactor,
             );
 
-            log("Local Position: $localPosition");
-
             bool isPartSelected = false;
             for (var part in parts) {
               final path = parseSvgPathData(part.path);
