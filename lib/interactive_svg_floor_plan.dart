@@ -202,9 +202,13 @@ final colorMap = {
   'yellowgreen': '9ACD32'
 };
 
-Color convertColorToHex(String? color) {
+Color convertColorToHex(String? color, {Color noneColor = defaultColor}) {
   if (color == null) {
     return defaultColor;
+  }
+
+  if (color == 'none') {
+    return noneColor;
   }
 
   if (color.startsWith('#')) {
@@ -252,6 +256,9 @@ class InteractiveSVGFloorPlan extends StatefulWidget {
   final void Function(SvgPart part) onPartSelected;
   final List<String> selectedParts;
   final bool multiSelect;
+  final Color? borderColor;
+  final Color? fillColor;
+  final Color backgroundColor;
 
   const InteractiveSVGFloorPlan({
     super.key,
@@ -262,6 +269,9 @@ class InteractiveSVGFloorPlan extends StatefulWidget {
     required this.onPartSelected,
     this.selectedParts = const [],
     this.multiSelect = false,
+    this.borderColor,
+    this.fillColor,
+    required this.backgroundColor,
   });
 
   @override
@@ -287,6 +297,9 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
   double scaleX = 1.0;
   double scaleY = 1.0;
 
+  double translateX = 0.0;
+  double translateY = 0.0;
+
   @override
   void initState() {
     super.initState();
@@ -296,141 +309,120 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
     });
   }
 
-
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: LayoutBuilder(builder: (context, constraints) {
-        double maxWidth = constraints.maxWidth - 50;
-        double maxHeight = constraints.maxHeight - 50;
+    return LayoutBuilder(builder: (context, constraints) {
+      double maxWidth = constraints.maxWidth;
+      double maxHeight = constraints.maxHeight;
 
-        scaleX = maxWidth / canvasSize.width;
-        scaleY = maxHeight / canvasSize.height;
+      scaleX = maxWidth / canvasSize.width;
+      scaleY = maxHeight / canvasSize.height;
 
-        if (scaleY > scaleX) scaleY = scaleX;
+      if (scaleY > scaleX) scaleY = scaleX;
 
-        double translateY = canvasSize.height * .02;
-        double translateX = canvasSize.width * .02;
+      translateY = (constraints.maxHeight - (canvasSize.height * scaleY)) / 2;
+      translateX = (constraints.maxWidth - (canvasSize.width * scaleX)) / 2;
 
-        return GestureDetector(
-          onTapDown: widget.multiSelect ? _multiSelectTapDown : _singleSelectTapDown,
-          onPanUpdate: (details) {
-            if (!widget.multiSelect) return;
-            setState(() {
-              _endSelection = details.localPosition;
-            });
-          },
-          onHorizontalDragUpdate: (details) {
-            if (!widget.multiSelect) return;
-            setState(() {
-              _endSelection = details.localPosition;
-            });
-          },
-          onHorizontalDragEnd: (details) {
-            if (!widget.multiSelect) return;
-            _selectPartsInRect(_getSelectionRect());
-            setState(() {
-              _startSelection = null;
-              _endSelection = null;
-              _isSelecting = false;
-            });
-            log("Pan Ended");
-          },
-          onPanEnd: (details) {
-            if (!widget.multiSelect) return;
-            _selectPartsInRect(_getSelectionRect());
-            setState(() {
-              _startSelection = null;
-              _endSelection = null;
-              _isSelecting = false;
-            });
-            log("Pan Ended");
-          },
-          // onPanStart: (details) {
-          //   if (!widget.multiSelect) return;
-          //   log("Pan Started");
-          //   setState(() {
-          //     _isSelecting = true;
-          //     _startSelection = details.localPosition;
-          //     _endSelection = details.localPosition;
-          //   });
-          // },
-          // onPanUpdate: (details) {
-          //   if (!widget.multiSelect) return;
-          //   setState(() {
-          //     _endSelection = details.localPosition;
-          //   });
-          // },
-          // onPanEnd: (details) {
-          //   if (!widget.multiSelect) return;
-          //   _selectPartsInRect(_getSelectionRect());
-          //   setState(() {
-          //     _startSelection = null;
-          //     _endSelection = null;
-          //     _isSelecting = false;
-          //   });
-          //   log("Pan Ended");
-          // },
-          child: Stack(
-            children: [
-              Container(
-                height: constraints.maxHeight,
-                width: constraints.maxWidth,
-                color: Colors.transparent,
-                child: InteractiveViewer(
-                  boundaryMargin: const EdgeInsets.all(double.infinity),
-                  minScale: .75,
-                  maxScale: 5,
-                  panEnabled: !_isSelecting,
-                  // scaleEnabled: !widget.multiSelect,
-                  panAxis: PanAxis.aligned,
-                  transformationController: _transformationController,
-                  child: Transform(
-                    transform: Matrix4.identity()..scale(scaleX, scaleY)..translate(translateX, translateY),
-                    child: CustomPaint(
-                      painter: SvgPathPainter(
-                        parts: parts,
-                        selectedParts: parts
-                            .where((part) => widget.selectedParts.contains(part.id))
-                            .toList(),
-                        highlightColor: widget.highlightColor,
-                        highlightStrokeWeight: widget.highlightStrokeWeight,
-                      ),
-                    ),
-                  ),
+      Widget child = Container(
+        height: constraints.maxHeight,
+        width: constraints.maxWidth,
+        color: Colors.transparent,
+        child: InteractiveViewer(
+          boundaryMargin: const EdgeInsets.all(double.infinity),
+          minScale: 1,
+          maxScale: 2.5,
+          panEnabled: true,
+          scaleEnabled: true,
+          // scaleEnabled: !widget.multiSelect,
+          panAxis: PanAxis.aligned,
+          transformationController: _transformationController,
+          child: Transform(
+            transform: Matrix4.identity()
+              ..scale(scaleX, scaleY)
+              ..translate(translateX, translateY),
+            child: CustomPaint(
+              painter: SvgPathPainter(
+                parts: parts,
+                selectedParts: parts
+                    .where((part) => widget.selectedParts.contains(part.id))
+                    .toList(),
+                highlightColor: widget.highlightColor,
+                highlightStrokeWeight: widget.highlightStrokeWeight,
+              ),
+            ),
+          ),
+        ),
+      );
+
+      return GestureDetector(
+        onTapDown:
+        widget.multiSelect ? _multiSelectTapDown : _singleSelectTapDown,
+        onPanUpdate: (details) {
+          if (!widget.multiSelect) return;
+          setState(() {
+            _endSelection = details.localPosition;
+          });
+        },
+        onHorizontalDragUpdate: (details) {
+          if (!widget.multiSelect) return;
+          setState(() {
+            _endSelection = details.localPosition;
+          });
+        },
+        onHorizontalDragEnd: (details) {
+          if (!widget.multiSelect) return;
+          _selectPartsInRect(_getSelectionRect());
+          setState(() {
+            _startSelection = null;
+            _endSelection = null;
+            _isSelecting = false;
+          });
+        },
+        onPanEnd: (details) {
+          if (!widget.multiSelect) return;
+          _selectPartsInRect(_getSelectionRect());
+          setState(() {
+            _startSelection = null;
+            _endSelection = null;
+            _isSelecting = false;
+          });
+        },
+        child: !widget.multiSelect
+            ? child
+            : Stack(
+          children: [
+            child,
+            if (_isSelecting &&
+                _startSelection != null &&
+                _endSelection != null &&
+                widget.multiSelect) ...[
+              CustomPaint(
+                painter: SelectionRectPainter(
+                  rect: _getSelectionRect(),
                 ),
               ),
-              if (_isSelecting && _startSelection != null && _endSelection != null && widget.multiSelect) ... [
-                CustomPaint(
-                  painter: SelectionRectPainter(
-                    rect: _getSelectionRect(),
-                  ),
-                ),
-              ],
             ],
-          ),
-        );
-      }),
-    );
+          ],
+        ),
+      );
+    });
   }
 
   void _singleSelectTapDown(details) {
-    if (widget.multiSelect) return;
-    Vector3 translation =
-    _transformationController.value.getTranslation();
-    double newScaleFactor =
-    _transformationController.value.getMaxScaleOnAxis();
+    Vector3 translation = _transformationController.value.getTranslation();
+    double newScaleFactor = _transformationController.value.getMaxScaleOnAxis();
 
     // scale the local position to the original size
     final localPosition = Offset(
-      ((details.localPosition.dx / scaleX) - (translation.x * scaleX)) /
+      ((details.localPosition.dx / scaleX) -
+          (translation.x * scaleX) -
+          translateX) /
           newScaleFactor,
-      ((details.localPosition.dy / scaleY) - (translation.y * scaleY)) /
+      ((details.localPosition.dy / scaleY) -
+          (translation.y * scaleY) -
+          translateY) /
           newScaleFactor,
     );
-
-    log("Local Position: $localPosition");
 
     bool isPartSelected = false;
     for (var part in parts) {
@@ -448,7 +440,6 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
 
   void _multiSelectTapDown(details) {
     if (!widget.multiSelect) return;
-    log("Pan Started");
     setState(() {
       _isSelecting = true;
       _startSelection = details.localPosition;
@@ -462,19 +453,22 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
   }
 
   void _selectPartsInRect(Rect selectionRect) {
-
-    Vector3 translation =
-    _transformationController.value.getTranslation();
-    double newScaleFactor =
-    _transformationController.value.getMaxScaleOnAxis();
+    Vector3 translation = _transformationController.value.getTranslation();
+    double newScaleFactor = _transformationController.value.getMaxScaleOnAxis();
 
     Offset start = Offset(
-      ((selectionRect.left / scaleX) - (translation.x * scaleX)) / newScaleFactor,
-      ((selectionRect.top / scaleY) - (translation.y * scaleY)) / newScaleFactor,
+      ((selectionRect.left / scaleX) - (translation.x * scaleX) - translateX) /
+          newScaleFactor,
+      ((selectionRect.top / scaleY) - (translation.y * scaleY) - translateY) /
+          newScaleFactor,
     );
     Offset end = Offset(
-      ((selectionRect.right / scaleX) - (translation.x * scaleX)) / newScaleFactor,
-      ((selectionRect.bottom / scaleY) - (translation.y * scaleY)) / newScaleFactor,
+      ((selectionRect.right / scaleX) - (translation.x * scaleX) - translateX) /
+          newScaleFactor,
+      ((selectionRect.bottom / scaleY) -
+          (translation.y * scaleY) -
+          translateY) /
+          newScaleFactor,
     );
 
     Rect newRect = Rect.fromPoints(start, end);
@@ -505,14 +499,23 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
     if (id == "null" || id == null || id.isEmpty) {
       id = null;
     }
-    Color fillColor = convertColorToHex(element.getAttribute('fill'));
+    Color fillColor = widget.fillColor ??
+        convertColorToHex(
+          element.getAttribute('fill'),
+          noneColor: widget.backgroundColor,
+        );
     if (fillColor != Colors.transparent && id != null) {
       fillColor = fillColor.withOpacity(widget.fillOpacity);
     }
-    final Color strokeColor = convertColorToHex(element.getAttribute('stroke'));
+    Color strokeColor = convertColorToHex(
+      element.getAttribute('stroke'),
+      noneColor: widget.backgroundColor,
+    );
+    if (strokeColor != widget.backgroundColor && widget.borderColor != null) {
+      strokeColor = widget.borderColor!;
+    }
     final double strokeWidth =
     double.parse(element.getAttribute('stroke-width') ?? '2');
-    log('Stroke Width: $strokeWidth');
     final String name = element.getAttribute('aria-label') ?? '';
 
     String path;
@@ -532,7 +535,6 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
         final pointList =
         points.split(RegExp(r'[\s,]+')).where((s) => s.isNotEmpty).toList();
         if (pointList.length % 2 != 0) {
-          log('Invalid points attribute in polygon element: $points');
           path = '';
         } else {
           path =
@@ -544,7 +546,6 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
         final pointList =
         points.split(RegExp(r'[\s,]+')).where((s) => s.isNotEmpty).toList();
         if (pointList.length % 2 != 0) {
-          log('Invalid points attribute in polyline element: $points');
           path = '';
         } else {
           path =
@@ -664,9 +665,7 @@ class SvgPathPainter extends CustomPainter {
         final path = parseSvgPathData(part.path);
         canvas.drawPath(path, strokePaint);
         canvas.drawPath(path, fillPaint);
-      } catch (e) {
-        log(e.toString(), name: part.type.toString());
-      }
+      } catch (e) {}
     }
   }
 
