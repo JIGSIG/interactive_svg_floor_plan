@@ -318,6 +318,8 @@ class InteractiveSVGFloorPlanController {
 
   Vector3? center;
 
+  SvgPart? currentlyHoveredPart;
+
   InteractiveSVGFloorPlanController({required this.planPath}) {
     loadSvgImage(svgImage: planPath);
   }
@@ -628,6 +630,7 @@ class InteractiveSVGFloorPlan extends StatefulWidget {
   final Color? backgroundColor;
   final BoxFit fit;
   final double padding;
+  final BorderRadius borderRadius;
 
   InteractiveSVGFloorPlan({
     super.key,
@@ -646,6 +649,7 @@ class InteractiveSVGFloorPlan extends StatefulWidget {
     this.backgroundColor,
     this.fit = BoxFit.contain,
     this.padding = 0.0,
+    this.borderRadius = BorderRadius.zero,
   }) {
     assert(plan != null || controller != null);
   }
@@ -709,21 +713,17 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
       maxWidth = constraints.maxWidth;
       maxHeight = constraints.maxHeight;
 
-      scaleX = maxWidth / _controller.canvasSize.width;
-      scaleY = maxHeight / _controller.canvasSize.height;
+      reScaledX = maxWidth / _controller.canvasSize.width;
+      reScaledY = maxHeight / _controller.canvasSize.height;
 
       double ratioFromPaddingX =
           1.0 - (widget.padding / _controller.canvasSize.width);
       double ratioFromPaddingY =
           1.0 - (widget.padding / _controller.canvasSize.height);
-      scaleX *= ratioFromPaddingX;
-      scaleY *= ratioFromPaddingY;
+      scaleX = ratioFromPaddingX * reScaledX;
+      scaleY = ratioFromPaddingY * reScaledY;
 
       _handleFit(maxWidth, maxHeight);
-
-      reScaledX = _controller.canvasSize.width / maxWidth;
-      reScaledY = _controller.canvasSize.height / maxHeight;
-
 
       imageWidth = _controller.canvasSize.width * scaleX;
       imageHeight = _controller.canvasSize.height * scaleY;
@@ -733,12 +733,6 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
 
       Widget child = MouseRegion(
         cursor: SystemMouseCursors.click,
-        onHover: (event) {
-          // log('Hover: ${event.localPosition.dx}, ${event.localPosition.dy}');
-          // log('TranslateY: ${translateY * scaleY}');
-          // final smt = event.localPosition.dy - translateY * scaleY;
-          // log('SMT: $smt');
-        },
         child: GestureDetector(
           onTapDown: (details) {
             currentPositonDetails = details;
@@ -778,24 +772,29 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
             child: InteractiveViewer(
               boundaryMargin: const EdgeInsets.all(double.infinity),
               minScale: .8,
-              maxScale: 3.5,
+              maxScale: 4.5,
               panEnabled: true,
               scaleEnabled: true,
               panAxis: PanAxis.aligned,
               transformationController: _controller.transformationController,
-              child: Transform(
-                transform: Matrix4.identity()
-                  ..scale(scaleX, scaleY)
-                  ..translate(translateX, translateY),
-                child: CustomPaint(
-                  painter: SvgPathPainter(
-                    parts: _controller.parts,
-                    selectedParts: _controller.parts
-                        .where((part) => widget.selectedParts.contains(part.id))
-                        .toList(),
-                    highlightColor: widget.highlightColor,
-                    highlightStrokeWeight: widget.highlightStrokeWeight,
-                    highlightStrokeColor: widget.highlightStrokeColor,
+              child: ClipRRect(
+                borderRadius: widget.borderRadius,
+                child: Transform(
+                  transform: Matrix4.identity()
+                    ..scale(scaleX, scaleY)
+                    ..translate(translateX, translateY),
+                  child: CustomPaint(
+                    painter: SvgPathPainter(
+                      parts: _controller.parts,
+                      selectedParts: _controller.parts
+                          .where((part) =>
+                      widget.selectedParts.contains(part.id) ||
+                          _controller.currentlyHoveredPart == part)
+                          .toList(),
+                      highlightColor: widget.highlightColor,
+                      highlightStrokeWeight: widget.highlightStrokeWeight,
+                      highlightStrokeColor: widget.highlightStrokeColor,
+                    ),
                   ),
                 ),
               ),
@@ -825,38 +824,46 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
   }
 
   void _singleSelectTapDown(TapDownDetails details) {
-
+    log("\n\n\n");
     // Get the current transformation values
     Vector3 currentTranslation =
     _controller.transformationController.value.getTranslation();
-    double currentScaleFactor =
-    _controller.transformationController.value.getMaxScaleOnAxis();
+    // double currentScaleFactor =
+    // _controller.transformationController.value.getMaxScaleOnAxis();
+    Matrix4 matrix = _controller.transformationController.value;
+    double currentScaleFactorX = matrix[0];
+    double currentScaleFactorY = matrix[5];
 
     double moveXtoPlanTopLeft = details.localPosition.dx - translateX * scaleX;
     double moveYtoPlanTopLeft = details.localPosition.dy - translateY * scaleY;
 
-    double addTransTranslationToX = moveXtoPlanTopLeft - currentTranslation.x;
-    double addTranTranslationToY = moveYtoPlanTopLeft - currentTranslation.y;
-
-    double addTransScaleToX = addTransTranslationToX / currentScaleFactor;
-    double addTransScaleToY = addTranTranslationToY / currentScaleFactor;
-
-    double localX = addTransScaleToX;
-    double localY = addTransScaleToY;
+    double localX = moveXtoPlanTopLeft - currentTranslation.x;
+    double localY = moveYtoPlanTopLeft - currentTranslation.y;
 
     Offset localPosition = Offset(localX, localY);
+    log('Local Position: ${localPosition.dx}, ${localPosition.dy}');
 
     // Iterate over the parts and check if the local position is contained within the path of each part
     for (var part in _controller.parts) {
       final path = part.parsedPath;
       final bounds = path.getBounds();
       final scaledRect = Rect.fromPoints(
-        Offset(bounds.left * scaleX, bounds.top * scaleY),
-        Offset(bounds.right * scaleX, bounds.bottom * scaleY),
+        Offset(bounds.left * scaleX * currentScaleFactorX, bounds.top * scaleY * currentScaleFactorY),
+        Offset(bounds.right * scaleX * currentScaleFactorX,
+            bounds.bottom * scaleY * currentScaleFactorY),
       );
+      // if (part.name == "Ajaccio") {
+      //   log('Scaled Rect: $scaledRect');
+      // }
+      if (part.name == "Porto-Vecchio") {
+        log(
+          '{\n\tLeft: ${scaledRect.left} \n\tRight: ${scaledRect.right}\n\tTop: ${bounds.top * scaleY} \n\tBottom: ${bounds.bottom * scaleY}\n}',
+          name: 'Porto-Vecchio',
+        );
+      }
       if (scaledRect.contains(localPosition) && part.id != null) {
         widget.onSinglePartSelected(part);
-        break;
+        // break;
       }
     }
   }
@@ -881,33 +888,30 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
     double currentScaleFactor =
     _controller.transformationController.value.getMaxScaleOnAxis();
 
-
     double moveLefttoPlanTopLeft = selectionRect.left - translateX * scaleX;
     double moveToptoPlanTopLeft = selectionRect.top - translateY * scaleY;
 
-    double addTransTranslationToLeft = moveLefttoPlanTopLeft - currentTranslation.x;
-    double addTranTranslationToTop = moveToptoPlanTopLeft - currentTranslation.y;
-
-    double addTransScaleToLeft = addTransTranslationToLeft / currentScaleFactor;
-    double addTransScaleToTop = addTranTranslationToTop / currentScaleFactor;
+    double addTransTranslationToLeft =
+        moveLefttoPlanTopLeft - currentTranslation.x;
+    double addTranTranslationToTop =
+        moveToptoPlanTopLeft - currentTranslation.y;
 
     Offset start = Offset(
-      addTransScaleToLeft,
-      addTransScaleToTop,
+      addTransTranslationToLeft,
+      addTranTranslationToTop,
     );
 
     double moveRighttoPlanTopLeft = selectionRect.right - translateX * scaleX;
     double moveBottomtoPlanTopLeft = selectionRect.bottom - translateY * scaleY;
 
-    double addTransTranslationToRight = moveRighttoPlanTopLeft - currentTranslation.x;
-    double addTranTranslationToBottom = moveBottomtoPlanTopLeft - currentTranslation.y;
-
-    double addTransScaleToRight = addTransTranslationToRight / currentScaleFactor;
-    double addTransScaleToBottom = addTranTranslationToBottom / currentScaleFactor;
+    double addTransTranslationToRight =
+        moveRighttoPlanTopLeft - currentTranslation.x;
+    double addTranTranslationToBottom =
+        moveBottomtoPlanTopLeft - currentTranslation.y;
 
     Offset end = Offset(
-      addTransScaleToRight,
-      addTransScaleToBottom,
+      addTransTranslationToRight,
+      addTranTranslationToBottom,
     );
 
     Rect newRect = Rect.fromPoints(start, end);
@@ -917,8 +921,8 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
       final path = part.parsedPath;
       final bounds = path.getBounds();
       final scaledRect = Rect.fromPoints(
-        Offset(bounds.left * scaleX, bounds.top * scaleY),
-        Offset(bounds.right * scaleX, bounds.bottom * scaleY),
+        Offset(bounds.left * scaleX * currentScaleFactor, bounds.top * scaleY * currentScaleFactor),
+        Offset(bounds.right * scaleX * currentScaleFactor, bounds.bottom * scaleY * currentScaleFactor),
       );
       if (scaledRect.overlaps(newRect)) {
         selected.add(part);
@@ -930,7 +934,6 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
     widget.onMultiPartsSelected(
         _selectedParts.whereOrEmpty((element) => element.id != null).toList());
   }
-
 
   void _handleFit(double maxWidth, double maxHeight) {
     switch (widget.fit) {
@@ -971,11 +974,6 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
           scaleX = 1.0;
         }
       default:
-        if (scaleY > scaleX) {
-          scaleY = scaleX;
-        } else if (scaleX > scaleY) {
-          scaleX = scaleY;
-        }
         break;
     }
   }
