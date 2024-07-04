@@ -7,26 +7,77 @@ import 'package:flutter/services.dart';
 import 'package:path_drawing/path_drawing.dart';
 import 'package:vector_math/vector_math_64.dart' show Vector3;
 import 'package:xml/xml.dart';
+import 'dart:math' as math;
+
+extension ExtensionList<T> on Iterable<T> {
+  T? firstWhereOrNull(bool Function(T) test, {T? Function()? orElse}) {
+    try {
+      return firstWhere(test);
+    } catch (e) {
+      return orElse?.call();
+    }
+  }
+
+  T? lastWhereOrNull(bool Function(T) test) {
+    try {
+      return lastWhere(test);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  bool compareTo(List<T?> other) {
+    if (length != other.length) {
+      return false;
+    }
+    for (int i = 0; i < length; i++) {
+      if (elementAt(i) != other.elementAt(i)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  List<T>? whereOrNull(bool Function(T) test) {
+    try {
+      return where(test).toList();
+    } catch (e) {
+      return null;
+    }
+  }
+
+  List<T> whereOrEmpty(bool Function(T) test) {
+    try {
+      return where(test).toList();
+    } catch (e) {
+      return <T>[];
+    }
+  }
+}
 
 const Color defaultColor = Colors.transparent;
 
 class SvgPart {
   final String? id;
   final String path;
+  final Path parsedPath;
   final Color fillColor;
   final Color strokeColor;
   final double strokeWidth;
   final String name;
   final String? type;
+  final SvgPartType partType;
 
   SvgPart({
     required this.id,
     required this.path,
+    required this.parsedPath,
     required this.fillColor,
     required this.strokeColor,
     this.strokeWidth = 2.0,
     required this.name,
     this.type,
+    required this.partType,
   });
 
   @override
@@ -57,6 +108,8 @@ class SvgPart {
     name.hashCode;
   }
 }
+
+enum SvgPartType { room, door, window, wall, floor, ceiling, furniture, other }
 
 final colorMap = {
   'aliceblue': 'F0F8FF',
@@ -207,7 +260,7 @@ Color convertColorToHex(String? color, {Color noneColor = defaultColor}) {
     return defaultColor;
   }
 
-  if (color == 'none') {
+  if (color == 'background') {
     return noneColor;
   }
 
@@ -248,275 +301,145 @@ Color convertColorToHex(String? color, {Color noneColor = defaultColor}) {
   return defaultColor; // Default to black if color format is unknown
 }
 
-class InteractiveSVGFloorPlan extends StatefulWidget {
-  final String plan;
-  final Color highlightColor;
-  final double highlightStrokeWeight;
-  final double fillOpacity;
-  final void Function(SvgPart part) onPartSelected;
-  final List<String> selectedParts;
-  final bool multiSelect;
-  final Color? borderColor;
-  final Color? fillColor;
-  final Color backgroundColor;
-
-  const InteractiveSVGFloorPlan({
-    super.key,
-    required this.plan,
-    this.highlightColor = Colors.red,
-    this.highlightStrokeWeight = 2.0,
-    this.fillOpacity = 1.0,
-    required this.onPartSelected,
-    this.selectedParts = const [],
-    this.multiSelect = false,
-    this.borderColor,
-    this.fillColor,
-    required this.backgroundColor,
-  });
-
-  @override
-  State<InteractiveSVGFloorPlan> createState() =>
-      _InteractiveSVGFloorPlanState();
-}
-
-class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
-  List<SvgPart> parts = [];
-
-  // Selection rectangle state variables
-  Offset? _startSelection;
-  Offset? _endSelection;
-  bool _isSelecting = false;
+class InteractiveSVGFloorPlanController {
+  List<SvgPart> _parts = [];
   List<SvgPart> _selectedParts = [];
-
-  // Default canvas size (3000x2250)
-  Size canvasSize = const Size(3000, 2250);
-
   final TransformationController _transformationController =
   TransformationController();
+  VoidCallback? _updateCallback;
+  Size canvasSize = const Size(3000, 2250);
+  Size canvasRealSize = const Size(3000, 2250);
 
-  double scaleX = 1.0;
-  double scaleY = 1.0;
+  Color? _fillColor;
+  Color _backgroundColor = defaultColor;
+  double _fillOpacity = 1.0;
+  Color? _borderColor;
+  final String planPath;
 
-  double translateX = 0.0;
-  double translateY = 0.0;
+  Vector3? center;
 
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await loadSvgImage(svgImage: widget.plan);
-      setState(() {});
-    });
+  InteractiveSVGFloorPlanController({required this.planPath}) {
+    loadSvgImage(svgImage: planPath);
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, constraints) {
-      double maxWidth = constraints.maxWidth;
-      double maxHeight = constraints.maxHeight;
+  List<SvgPart> get parts => _parts;
 
-      scaleX = maxWidth / canvasSize.width;
-      scaleY = maxHeight / canvasSize.height;
+  TransformationController get transformationController =>
+      _transformationController;
 
-      if (scaleY > scaleX) scaleY = scaleX;
-
-      translateY = (constraints.maxHeight - (canvasSize.height * scaleY)) / 2;
-      translateX = (constraints.maxWidth - (canvasSize.width * scaleX)) / 2;
-
-      Widget child = Container(
-        height: constraints.maxHeight,
-        width: constraints.maxWidth,
-        color: Colors.transparent,
-        child: InteractiveViewer(
-          boundaryMargin: const EdgeInsets.all(double.infinity),
-          minScale: 1,
-          maxScale: 2.5,
-          panEnabled: false,
-          scaleEnabled: false,
-          // scaleEnabled: !widget.multiSelect,
-          panAxis: PanAxis.aligned,
-          transformationController: _transformationController,
-          child: Transform(
-            transform: Matrix4.identity()
-              ..scale(scaleX, scaleY)
-              ..translate(translateX, translateY),
-            child: CustomPaint(
-              painter: SvgPathPainter(
-                parts: parts,
-                selectedParts: parts
-                    .where((part) => widget.selectedParts.contains(part.id))
-                    .toList(),
-                highlightColor: widget.highlightColor,
-                highlightStrokeWeight: widget.highlightStrokeWeight,
-              ),
-            ),
-          ),
-        ),
-      );
-
-      return GestureDetector(
-        onTapDown:
-        widget.multiSelect ? _multiSelectTapDown : _singleSelectTapDown,
-        onPanUpdate: (details) {
-          if (!widget.multiSelect) return;
-          setState(() {
-            _endSelection = details.localPosition;
-          });
-        },
-        onHorizontalDragUpdate: (details) {
-          if (!widget.multiSelect) return;
-          setState(() {
-            _endSelection = details.localPosition;
-          });
-        },
-        onHorizontalDragEnd: (details) {
-          if (!widget.multiSelect) return;
-          _selectPartsInRect(_getSelectionRect());
-          setState(() {
-            _startSelection = null;
-            _endSelection = null;
-            _isSelecting = false;
-          });
-        },
-        onPanEnd: (details) {
-          if (!widget.multiSelect) return;
-          _selectPartsInRect(_getSelectionRect());
-          setState(() {
-            _startSelection = null;
-            _endSelection = null;
-            _isSelecting = false;
-          });
-        },
-        child: !widget.multiSelect
-            ? child
-            : Stack(
-          children: [
-            child,
-            if (_isSelecting &&
-                _startSelection != null &&
-                _endSelection != null &&
-                widget.multiSelect) ...[
-              CustomPaint(
-                painter: SelectionRectPainter(
-                  rect: _getSelectionRect(),
-                ),
-              ),
-            ],
-          ],
-        ),
-      );
-    });
+  void setColor({
+    Color? fillColor,
+    Color? borderColor,
+    Color backgroundColor = defaultColor,
+    double fillOpacity = 1.0,
+  }) {
+    _fillColor = fillColor;
+    _borderColor = borderColor;
+    _backgroundColor = backgroundColor;
+    _fillOpacity = fillOpacity;
+    loadSvgImage(svgImage: '');
   }
 
-  void _singleSelectTapDown(details) {
-    Vector3 translation = _transformationController.value.getTranslation();
-    double newScaleFactor = _transformationController.value.getMaxScaleOnAxis();
-
-    // scale the local position to the original size
-    final localPosition = Offset(
-      ((details.localPosition.dx / scaleX) -
-          (translation.x * scaleX) -
-          translateX) /
-          newScaleFactor,
-      ((details.localPosition.dy / scaleY) -
-          (translation.y * scaleY) -
-          translateY) /
-          newScaleFactor,
-    );
-
-    bool isPartSelected = false;
-    for (var part in parts) {
-      final path = parseSvgPathData(part.path);
-      if (path.contains(localPosition) && part.id != null) {
-        isPartSelected = true;
-        onPartSelected(part);
-        break;
-      }
-    }
-    // if (!isPartSelected) {
-    //   setState(() {});
-    // }
+  void setParts(List<SvgPart> parts) {
+    _parts = parts;
+    _notifyUpdate();
   }
 
-  void _multiSelectTapDown(details) {
-    if (!widget.multiSelect) return;
-    setState(() {
-      _isSelecting = true;
-      _startSelection = details.localPosition;
-      _endSelection = details.localPosition;
-    });
+  void setUpdateCallback(VoidCallback callback) {
+    _updateCallback = callback;
   }
 
-  Rect _getSelectionRect() {
-    if (_startSelection == null || _endSelection == null) return Rect.zero;
-    return Rect.fromPoints(_startSelection!, _endSelection!);
-  }
-
-  void _selectPartsInRect(Rect selectionRect) {
-    Vector3 translation = _transformationController.value.getTranslation();
-    double newScaleFactor = _transformationController.value.getMaxScaleOnAxis();
-
-    Offset start = Offset(
-      ((selectionRect.left / scaleX) - (translation.x * scaleX) - translateX) /
-          newScaleFactor,
-      ((selectionRect.top / scaleY) - (translation.y * scaleY) - translateY) /
-          newScaleFactor,
-    );
-    Offset end = Offset(
-      ((selectionRect.right / scaleX) - (translation.x * scaleX) - translateX) /
-          newScaleFactor,
-      ((selectionRect.bottom / scaleY) -
-          (translation.y * scaleY) -
-          translateY) /
-          newScaleFactor,
-    );
-
-    Rect newRect = Rect.fromPoints(start, end);
-
-    List<SvgPart> selected = [];
-    for (var part in parts) {
-      final path = parseSvgPathData(part.path);
-      if (path.getBounds().overlaps(newRect)) {
-        selected.add(part);
-      }
-    }
-    setState(() {
-      _selectedParts = selected;
-    });
-    for (var element in _selectedParts) {
-      widget.onPartSelected(element);
+  void _notifyUpdate() {
+    if (_updateCallback != null) {
+      _updateCallback!();
     }
   }
 
-  void onPartSelected(SvgPart part) {
-    widget.onPartSelected(part);
+  void selectMultipleParts(List<String> partIds) {
+    _selectedParts = _parts.where((part) => partIds.contains(part.id)).toList();
+    _notifyUpdate();
+  }
 
-    setState(() {});
+  void selectPart(SvgPart part) {
+    if (part.id == null) return;
+    if (_selectedParts.contains(part)) {
+      _selectedParts.remove(part);
+    } else {
+      _selectedParts.add(part);
+    }
+    _notifyUpdate();
+  }
+
+  // Example method to load SVG image
+  Future<void> loadSvgImage({required String svgImage}) async {
+    _parts.clear();
+
+    String generalString = await rootBundle.loadString(svgImage);
+
+    XmlDocument document = XmlDocument.parse(generalString);
+
+    canvasSize = Size(
+      double.parse(document.rootElement.getAttribute('width') ?? '3000'),
+      double.parse(document.rootElement.getAttribute('height') ?? '2250'),
+    );
+
+    // Combine queries to minimize DOM parsing time
+
+    // Handle <rect> elements
+    document.findAllElements('rect').forEach(
+            (element) => _parts.add(parseElementToSvgPart(element, 'rect')));
+    // Handle <polygon> elements
+    document.findAllElements('polygon').forEach(
+            (element) => _parts.add(parseElementToSvgPart(element, 'polygon')));
+    // Handle <polyline> elements
+    document.findAllElements('polyline').forEach(
+            (element) => _parts.add(parseElementToSvgPart(element, 'polyline')));
+    // Handle <line> elements
+    document.findAllElements('line').forEach(
+            (element) => _parts.add(parseElementToSvgPart(element, 'line')));
+    // Handle <circle> elements
+    document.findAllElements('circle').forEach(
+            (element) => _parts.add(parseElementToSvgPart(element, 'circle')));
+    // Handle <ellipse> elements
+    document.findAllElements('ellipse').forEach(
+            (element) => _parts.add(parseElementToSvgPart(element, 'ellipse')));
+    // Handle <path> elements
+    document.findAllElements('path').forEach(
+            (element) => _parts.add(parseElementToSvgPart(element, 'path')));
+
+    setParts(_parts);
   }
 
   SvgPart parseElementToSvgPart(XmlElement element, String type) {
-    String? id = element.getAttribute('id');
-    if (id == "null" || id == null || id.isEmpty) {
-      id = null;
-    }
-    Color fillColor = widget.fillColor ??
-        convertColorToHex(
-          element.getAttribute('fill'),
-          noneColor: widget.backgroundColor,
-        );
-    if (fillColor != Colors.transparent && id != null) {
-      fillColor = fillColor.withOpacity(widget.fillOpacity);
-    }
     Color strokeColor = convertColorToHex(
       element.getAttribute('stroke'),
-      noneColor: widget.backgroundColor,
+      noneColor: _backgroundColor,
     );
-    if (strokeColor != widget.backgroundColor && widget.borderColor != null) {
-      strokeColor = widget.borderColor!;
+    if (strokeColor != _backgroundColor && _borderColor != null) {
+      strokeColor = _borderColor!;
     }
     final double strokeWidth =
     double.parse(element.getAttribute('stroke-width') ?? '2');
-    final String name = element.getAttribute('aria-label') ?? '';
+    final String name = element.getAttribute('name') ?? '';
+    final String partTypeString = element.getAttribute('type') ?? '';
+    final SvgPartType partType = SvgPartType.values.firstWhere(
+          (e) {
+        return e.toString().split('.').last == partTypeString;
+      },
+      orElse: () => SvgPartType.other,
+    );
+    String? id = element.getAttribute('id');
+    if (id == "null" || id == null || id.isEmpty) {
+      id = (partType == SvgPartType.room ? _parts.length.toString() : null);
+    }
+    Color fillColor = _fillColor ??
+        convertColorToHex(
+          element.getAttribute('fill'),
+          noneColor: _backgroundColor,
+        );
+    if (fillColor != Colors.transparent && id != null) {
+      fillColor = fillColor.withOpacity(_fillOpacity);
+    }
 
     String path;
     switch (type) {
@@ -581,53 +504,616 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
         path = '';
     }
 
+    Path parsedPath = parseSvgPathData(path);
+
     return SvgPart(
-      id: id ?? (parts.isEmpty ? null : path),
+      id: id,
       path: path,
+      parsedPath: parsedPath,
       fillColor: fillColor,
       strokeColor: strokeColor,
       strokeWidth: strokeWidth,
       name: name,
       type: type,
+      partType: partType,
     );
   }
 
-  Future<List<SvgPart>> loadSvgImage({required String svgImage}) async {
-    String generalString = await rootBundle.loadString(svgImage);
+  void setCanvasRealSize(Size size) {
+    canvasRealSize = size;
+  }
 
-    XmlDocument document = XmlDocument.parse(generalString);
+  void zoomIn() {
+    // _transformationController.value *= Matrix4.diagonal3Values(1.1, 1.1, 1);
+    final scale = _transformationController.value.getMaxScaleOnAxis();
+    if (scale >= 2.5) {
+      return;
+    }
+    final position = _transformationController.value.getTranslation();
 
-    canvasSize = Size(
-      double.parse(document.rootElement.getAttribute('width') ?? '3000'),
-      double.parse(document.rootElement.getAttribute('height') ?? '2250'),
+    _transformationController.value = Matrix4.identity()
+      ..translate(position.x, position.y)
+      ..scale(scale + 0.1);
+    _notifyUpdate();
+  }
+
+  void zoomOut() {
+    log('Zoom out');
+    // _transformationController.value *= Matrix4.diagonal3Values(0.9, 0.9, 1);
+    final scale = _transformationController.value.getMaxScaleOnAxis();
+    if (scale < 1) {
+      log('Scale $scale');
+      return;
+    }
+    final position = _transformationController.value.getTranslation();
+
+    _transformationController.value = Matrix4.identity()
+      ..translate(-position.x, -position.y)
+      ..scale(scale - 0.1);
+    _notifyUpdate();
+  }
+
+  void setCenter(Offset offset) {
+    center = Vector3(offset.dx, offset.dy, 1);
+  }
+
+  void zoomInCenter() {
+    final double scale = _transformationController.value.getMaxScaleOnAxis();
+    if (scale >= 2.5) {
+      return;
+    }
+    final double scaleFactor = scale + 0.1;
+
+    final Matrix4 matrix = _transformationController.value.clone();
+    final Size size = canvasRealSize;
+
+    // Calculate the center point of the canvas
+    final Offset center = Offset(
+      size.width / 2,
+      size.height / 2,
     );
 
-    // Combine queries to minimize DOM parsing time
+    // Translate to the center, apply scaling, then translate back
+    matrix.translate(-center.dx, -center.dy);
+    matrix.scale(scaleFactor);
+    matrix.translate(center.dx, center.dy);
 
-    // Handle <rect> elements
-    document.findAllElements('rect').forEach(
-            (element) => parts.add(parseElementToSvgPart(element, 'rect')));
-    // Handle <polygon> elements
-    document.findAllElements('polygon').forEach(
-            (element) => parts.add(parseElementToSvgPart(element, 'polygon')));
-    // Handle <polyline> elements
-    document.findAllElements('polyline').forEach(
-            (element) => parts.add(parseElementToSvgPart(element, 'polyline')));
-    // Handle <line> elements
-    document.findAllElements('line').forEach(
-            (element) => parts.add(parseElementToSvgPart(element, 'line')));
-    // Handle <circle> elements
-    document.findAllElements('circle').forEach(
-            (element) => parts.add(parseElementToSvgPart(element, 'circle')));
-    // Handle <ellipse> elements
-    document.findAllElements('ellipse').forEach(
-            (element) => parts.add(parseElementToSvgPart(element, 'ellipse')));
-    // Handle <path> elements
-    document.findAllElements('path').forEach(
-            (element) => parts.add(parseElementToSvgPart(element, 'path')));
-
-    return parts;
+    _transformationController.value = matrix;
   }
+
+  void zoomOutCenter() {
+    final double scale = _transformationController.value.getMaxScaleOnAxis();
+    if (scale <= 1) {
+      return;
+    }
+    final double scaleFactor = scale - 0.1;
+    final Matrix4 matrix = _transformationController.value.clone();
+    final Size size = canvasRealSize;
+
+    // Calculate the center point of the canvas
+    final Offset center = Offset(
+      size.width / 2,
+      size.height / 2,
+    );
+
+    // Translate to the center, apply inverse scaling, then translate back
+    matrix.translate(-center.dx, -center.dy);
+    matrix.scale(1 / scaleFactor);
+    matrix.translate(center.dx, center.dy);
+
+    _transformationController.value = matrix;
+  }
+
+  bool checkIfPolygon(Path parsedPath) {
+    final bounds = parsedPath.getBounds();
+    final rect = Rect.fromPoints(bounds.topLeft, bounds.bottomRight);
+
+    return rect.width + rect.height > 0.0;
+  }
+}
+
+class InteractiveSVGFloorPlan extends StatefulWidget {
+  final String? plan;
+  final InteractiveSVGFloorPlanController? controller;
+  final Color highlightColor;
+  final double highlightStrokeWeight;
+  final Color? highlightStrokeColor;
+  final double fillOpacity;
+  final void Function(List<SvgPart> parts) onMultiPartsSelected;
+  final void Function(SvgPart part) onSinglePartSelected;
+  final List<String> selectedParts;
+  final bool multiSelect;
+  final Color? borderColor;
+  final Color? fillColor;
+  final Color? backgroundColor;
+  final BoxFit fit;
+  final double padding;
+
+  InteractiveSVGFloorPlan({
+    super.key,
+    this.plan,
+    this.controller,
+    this.highlightColor = Colors.red,
+    this.highlightStrokeWeight = 2.0,
+    this.highlightStrokeColor,
+    this.fillOpacity = 1.0,
+    required this.onMultiPartsSelected,
+    required this.onSinglePartSelected,
+    this.selectedParts = const [],
+    this.multiSelect = false,
+    this.borderColor,
+    this.fillColor,
+    this.backgroundColor,
+    this.fit = BoxFit.contain,
+    this.padding = 0.0,
+  }) {
+    assert(plan != null || controller != null);
+  }
+
+  @override
+  State<InteractiveSVGFloorPlan> createState() =>
+      _InteractiveSVGFloorPlanState();
+}
+
+class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
+  // List<SvgPart> parts = [];
+
+  // Selection rectangle state variables
+  Offset? _startSelection;
+  Offset? _endSelection;
+  bool _isSelecting = false;
+  List<SvgPart> _selectedParts = [];
+
+  // Default canvas size (3000x2250)
+  // Size canvasSize = const Size(3000, 2250);
+
+  late final InteractiveSVGFloorPlanController _controller;
+
+  double scaleX = 1.0;
+  double scaleY = 1.0;
+
+  double translateX = 0.0;
+  double translateY = 0.0;
+
+  bool disableScale = false;
+  bool disablePan = false;
+
+  TapDownDetails? currentPositonDetails;
+
+  double maxWidth = 0.0;
+  double maxHeight = 0.0;
+
+  double imageWidth = 0.0;
+  double imageHeight = 0.0;
+
+  double reScaledX = 1.0;
+  double reScaledY = 1.0;
+
+  @override
+  void initState() {
+    _controller = widget.controller ??
+        InteractiveSVGFloorPlanController(planPath: widget.plan!);
+    super.initState();
+    _controller.setUpdateCallback(() {
+      setState(() {});
+    });
+    // WidgetsBinding.instance.addPostFrameCallback((_) async {
+    //   // await loadSvgImage(svgImage: widget.plan);
+    //   setState(() {});
+    // });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(builder: (context, constraints) {
+      maxWidth = constraints.maxWidth;
+      maxHeight = constraints.maxHeight;
+
+      scaleX = maxWidth / _controller.canvasSize.width;
+      scaleY = maxHeight / _controller.canvasSize.height;
+
+      double ratioFromPaddingX =
+          1.0 - (widget.padding / _controller.canvasSize.width);
+      double ratioFromPaddingY =
+          1.0 - (widget.padding / _controller.canvasSize.height);
+      scaleX *= ratioFromPaddingX;
+      scaleY *= ratioFromPaddingY;
+
+      _handleFit(maxWidth, maxHeight);
+
+      reScaledX = _controller.canvasSize.width / maxWidth;
+      reScaledY = _controller.canvasSize.height / maxHeight;
+
+
+      imageWidth = _controller.canvasSize.width * scaleX;
+      imageHeight = _controller.canvasSize.height * scaleY;
+
+      translateY = ((maxHeight - imageHeight) / 2) / scaleY;
+      translateX = ((maxWidth - imageWidth) / 2) / scaleX;
+
+      Widget child = MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onHover: (event) {
+          // log('Hover: ${event.localPosition.dx}, ${event.localPosition.dy}');
+          // log('TranslateY: ${translateY * scaleY}');
+          // final smt = event.localPosition.dy - translateY * scaleY;
+          // log('SMT: $smt');
+        },
+        child: GestureDetector(
+          onTapDown: (details) {
+            currentPositonDetails = details;
+          },
+          onTap: () {
+            if (currentPositonDetails != null) {
+              _singleSelectTapDown(currentPositonDetails!);
+            }
+          },
+          onDoubleTap: () {
+            // Reset the transformation controller
+            _controller.transformationController.value = Matrix4.identity();
+          },
+          onLongPressStart: _multiSelectTapDown,
+          onLongPressMoveUpdate: (details) {
+            if (!widget.multiSelect) return;
+            setState(() {
+              disablePan = true;
+              _isSelecting = true;
+              _startSelection ??= details.localPosition;
+              _endSelection = details.localPosition;
+            });
+          },
+          onLongPressEnd: (details) {
+            if (!widget.multiSelect) return;
+            _selectPartsInRect(_getSelectionRect());
+            setState(() {
+              disablePan = false;
+              _startSelection = null;
+              _endSelection = null;
+              _isSelecting = false;
+            });
+          },
+          child: SizedBox(
+            height: maxHeight,
+            width: maxWidth,
+            child: InteractiveViewer(
+              boundaryMargin: const EdgeInsets.all(double.infinity),
+              minScale: .8,
+              maxScale: 3.5,
+              panEnabled: true,
+              scaleEnabled: true,
+              panAxis: PanAxis.aligned,
+              transformationController: _controller.transformationController,
+              child: Transform(
+                transform: Matrix4.identity()
+                  ..scale(scaleX, scaleY)
+                  ..translate(translateX, translateY),
+                child: CustomPaint(
+                  painter: SvgPathPainter(
+                    parts: _controller.parts,
+                    selectedParts: _controller.parts
+                        .where((part) => widget.selectedParts.contains(part.id))
+                        .toList(),
+                    highlightColor: widget.highlightColor,
+                    highlightStrokeWeight: widget.highlightStrokeWeight,
+                    highlightStrokeColor: widget.highlightStrokeColor,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      return !widget.multiSelect
+          ? child
+          : Stack(
+        children: [
+          child,
+          if (_isSelecting &&
+              _startSelection != null &&
+              _endSelection != null &&
+              widget.multiSelect) ...[
+            CustomPaint(
+              painter: SelectionRectPainter(
+                rect: _getSelectionRect(),
+              ),
+            ),
+          ],
+        ],
+      );
+    });
+  }
+
+  void _singleSelectTapDown(TapDownDetails details) {
+
+    // Get the current transformation values
+    Vector3 currentTranslation =
+    _controller.transformationController.value.getTranslation();
+    double currentScaleFactor =
+    _controller.transformationController.value.getMaxScaleOnAxis();
+
+    double moveXtoPlanTopLeft = details.localPosition.dx - translateX * scaleX;
+    double moveYtoPlanTopLeft = details.localPosition.dy - translateY * scaleY;
+
+    double addTransTranslationToX = moveXtoPlanTopLeft - currentTranslation.x;
+    double addTranTranslationToY = moveYtoPlanTopLeft - currentTranslation.y;
+
+    double addTransScaleToX = addTransTranslationToX / currentScaleFactor;
+    double addTransScaleToY = addTranTranslationToY / currentScaleFactor;
+
+    double localX = addTransScaleToX;
+    double localY = addTransScaleToY;
+
+    Offset localPosition = Offset(localX, localY);
+
+    // Iterate over the parts and check if the local position is contained within the path of each part
+    for (var part in _controller.parts) {
+      final path = part.parsedPath;
+      final bounds = path.getBounds();
+      final scaledRect = Rect.fromPoints(
+        Offset(bounds.left * scaleX, bounds.top * scaleY),
+        Offset(bounds.right * scaleX, bounds.bottom * scaleY),
+      );
+      if (scaledRect.contains(localPosition) && part.id != null) {
+        widget.onSinglePartSelected(part);
+        break;
+      }
+    }
+  }
+
+  void _multiSelectTapDown(details) {
+    if (!widget.multiSelect) return;
+    setState(() {
+      _isSelecting = true;
+      _startSelection = details.localPosition;
+      _endSelection = details.localPosition;
+    });
+  }
+
+  Rect _getSelectionRect() {
+    if (_startSelection == null || _endSelection == null) return Rect.zero;
+    return Rect.fromPoints(_startSelection!, _endSelection!);
+  }
+
+  void _selectPartsInRect(Rect selectionRect) {
+    Vector3 currentTranslation =
+    _controller.transformationController.value.getTranslation();
+    double currentScaleFactor =
+    _controller.transformationController.value.getMaxScaleOnAxis();
+
+
+    double moveLefttoPlanTopLeft = selectionRect.left - translateX * scaleX;
+    double moveToptoPlanTopLeft = selectionRect.top - translateY * scaleY;
+
+    double addTransTranslationToLeft = moveLefttoPlanTopLeft - currentTranslation.x;
+    double addTranTranslationToTop = moveToptoPlanTopLeft - currentTranslation.y;
+
+    double addTransScaleToLeft = addTransTranslationToLeft / currentScaleFactor;
+    double addTransScaleToTop = addTranTranslationToTop / currentScaleFactor;
+
+    Offset start = Offset(
+      addTransScaleToLeft,
+      addTransScaleToTop,
+    );
+
+    double moveRighttoPlanTopLeft = selectionRect.right - translateX * scaleX;
+    double moveBottomtoPlanTopLeft = selectionRect.bottom - translateY * scaleY;
+
+    double addTransTranslationToRight = moveRighttoPlanTopLeft - currentTranslation.x;
+    double addTranTranslationToBottom = moveBottomtoPlanTopLeft - currentTranslation.y;
+
+    double addTransScaleToRight = addTransTranslationToRight / currentScaleFactor;
+    double addTransScaleToBottom = addTranTranslationToBottom / currentScaleFactor;
+
+    Offset end = Offset(
+      addTransScaleToRight,
+      addTransScaleToBottom,
+    );
+
+    Rect newRect = Rect.fromPoints(start, end);
+
+    List<SvgPart> selected = [];
+    for (var part in _controller.parts) {
+      final path = part.parsedPath;
+      final bounds = path.getBounds();
+      final scaledRect = Rect.fromPoints(
+        Offset(bounds.left * scaleX, bounds.top * scaleY),
+        Offset(bounds.right * scaleX, bounds.bottom * scaleY),
+      );
+      if (scaledRect.overlaps(newRect)) {
+        selected.add(part);
+      }
+    }
+    setState(() {
+      _selectedParts = selected;
+    });
+    widget.onMultiPartsSelected(
+        _selectedParts.whereOrEmpty((element) => element.id != null).toList());
+  }
+
+
+  void _handleFit(double maxWidth, double maxHeight) {
+    switch (widget.fit) {
+      case BoxFit.contain:
+        if (scaleY > scaleX) {
+          scaleY = scaleX;
+        } else if (scaleX > scaleY) {
+          scaleX = scaleY;
+        }
+        break;
+      case BoxFit.cover:
+        final double biggerScale = math.max(scaleX, scaleY);
+        scaleX = biggerScale;
+        scaleY = biggerScale;
+        break;
+      case BoxFit.fill:
+        if (maxWidth > maxHeight) {
+          if (scaleY > scaleX) {
+            scaleY = scaleX;
+          }
+        } else {
+          if (scaleX > scaleY) {
+            scaleX = scaleY;
+          }
+        }
+        break;
+      case BoxFit.fitWidth:
+        scaleY = scaleX;
+        break;
+      case BoxFit.fitHeight:
+        scaleX = scaleY;
+        break;
+      case BoxFit.scaleDown:
+        if (scaleY > 1.0) {
+          scaleY = 1.0;
+        }
+        if (scaleX > 1.0) {
+          scaleX = 1.0;
+        }
+      default:
+        if (scaleY > scaleX) {
+          scaleY = scaleX;
+        } else if (scaleX > scaleY) {
+          scaleX = scaleY;
+        }
+        break;
+    }
+  }
+
+// SvgPart parseElementToSvgPart(XmlElement element, String type) {
+//   String? id = element.getAttribute('id');
+//   if (id == "null" || id == null || id.isEmpty) {
+//     id = null;
+//   }
+//   Color fillColor = widget.fillColor ??
+//       convertColorToHex(
+//         element.getAttribute('fill'),
+//         noneColor: widget.backgroundColor,
+//       );
+//   if (fillColor != Colors.transparent && id != null) {
+//     fillColor = fillColor.withOpacity(widget.fillOpacity);
+//   }
+//   Color strokeColor = convertColorToHex(
+//     element.getAttribute('stroke'),
+//     noneColor: widget.backgroundColor,
+//   );
+//   if (strokeColor != widget.backgroundColor && widget.borderColor != null) {
+//     strokeColor = widget.borderColor!;
+//   }
+//   final double strokeWidth =
+//       double.parse(element.getAttribute('stroke-width') ?? '2');
+//   final String name = element.getAttribute('aria-label') ?? '';
+//
+//   String path;
+//   switch (type) {
+//     case 'rect':
+//       final x = element.getAttribute('x') ?? '0';
+//       final y = element.getAttribute('y') ?? '0';
+//       final width = element.getAttribute('width') ?? '0';
+//       final height = element.getAttribute('height') ?? '0';
+//       path = 'M$x,$y h$width v$height h-$width Z';
+//       break;
+//     case 'polygon':
+//       final points = element.getAttribute('points') ?? '';
+//       path =
+//           'M${points.split(' ').map((e) => e.replaceAll(',', ' ')).join(' L')} Z';
+//       break;
+//       final pointList =
+//           points.split(RegExp(r'[\s,]+')).where((s) => s.isNotEmpty).toList();
+//       if (pointList.length % 2 != 0) {
+//         path = '';
+//       } else {
+//         path =
+//             'M${pointList.asMap().entries.map((e) => '${e.value}${e.key % 2 == 0 ? ',' : ' '}').join()} Z';
+//       }
+//       break;
+//     case 'polyline':
+//       final points = element.getAttribute('points') ?? '';
+//       final pointList =
+//           points.split(RegExp(r'[\s,]+')).where((s) => s.isNotEmpty).toList();
+//       if (pointList.length % 2 != 0) {
+//         path = '';
+//       } else {
+//         path =
+//             'M${pointList.asMap().entries.map((e) => '${e.value}${e.key % 2 == 0 ? ',' : ' '}').join()}';
+//       }
+//       break;
+//     case 'line':
+//       final x1 = element.getAttribute('x1') ?? '0';
+//       final y1 = element.getAttribute('y1') ?? '0';
+//       final x2 = element.getAttribute('x2') ?? '0';
+//       final y2 = element.getAttribute('y2') ?? '0';
+//       path = 'M$x1,$y1 L$x2,$y2';
+//       break;
+//     case 'circle':
+//       final cx = double.tryParse(element.getAttribute('cx') ?? '0') ?? 0;
+//       final cy = double.tryParse(element.getAttribute('cy') ?? '0') ?? 0;
+//       final r = double.tryParse(element.getAttribute('r') ?? '0') ?? 0;
+//       path =
+//           'M${cx + r},$cy A$r,$r 0 1,1 ${cx - r},$cy A$r,$r 0 1,1 ${cx + r},$cy';
+//       break;
+//     case 'ellipse':
+//       final cx = double.tryParse(element.getAttribute('cx') ?? '0') ?? 0;
+//       final cy = double.tryParse(element.getAttribute('cy') ?? '0') ?? 0;
+//       final rx = double.tryParse(element.getAttribute('rx') ?? '0') ?? 0;
+//       final ry = double.tryParse(element.getAttribute('ry') ?? '0') ?? 0;
+//       path =
+//           'M${cx + rx},$cy A$rx,$ry 0 1,1 ${cx - rx},$cy A$rx,$ry 0 1,1 ${cx + rx},$cy';
+//       break;
+//     case 'path':
+//       path = element.getAttribute('d') ?? '';
+//       break;
+//     default:
+//       path = '';
+//   }
+//
+//   return SvgPart(
+//     id: id ?? (parts.isEmpty || ['rect', 'polygon', 'path'].contains(type) == false ? null : path),
+//     path: path,
+//     fillColor: fillColor,
+//     strokeColor: strokeColor,
+//     strokeWidth: strokeWidth,
+//     name: name,
+//     type: type,
+//   );
+// }
+//
+// Future<List<SvgPart>> loadSvgImage({required String svgImage}) async {
+//   String generalString = await rootBundle.loadString(svgImage);
+//
+//   XmlDocument document = XmlDocument.parse(generalString);
+//
+//   canvasSize = Size(
+//     double.parse(document.rootElement.getAttribute('width') ?? '3000'),
+//     double.parse(document.rootElement.getAttribute('height') ?? '2250'),
+//   );
+//
+//   // Combine queries to minimize DOM parsing time
+//
+//   // Handle <rect> elements
+//   document.findAllElements('rect').forEach(
+//       (element) => parts.add(parseElementToSvgPart(element, 'rect')));
+//   // Handle <polygon> elements
+//   document.findAllElements('polygon').forEach(
+//       (element) => parts.add(parseElementToSvgPart(element, 'polygon')));
+//   // Handle <polyline> elements
+//   document.findAllElements('polyline').forEach(
+//       (element) => parts.add(parseElementToSvgPart(element, 'polyline')));
+//   // Handle <line> elements
+//   document.findAllElements('line').forEach(
+//       (element) => parts.add(parseElementToSvgPart(element, 'line')));
+//   // Handle <circle> elements
+//   document.findAllElements('circle').forEach(
+//       (element) => parts.add(parseElementToSvgPart(element, 'circle')));
+//   // Handle <ellipse> elements
+//   document.findAllElements('ellipse').forEach(
+//       (element) => parts.add(parseElementToSvgPart(element, 'ellipse')));
+//   // Handle <path> elements
+//   document.findAllElements('path').forEach(
+//       (element) => parts.add(parseElementToSvgPart(element, 'path')));
+//
+//   return parts;
+// }
 }
 
 class SvgPathPainter extends CustomPainter {
@@ -635,12 +1121,14 @@ class SvgPathPainter extends CustomPainter {
   final List<SvgPart> selectedParts;
   final Color highlightColor;
   final double highlightStrokeWeight;
+  final Color? highlightStrokeColor;
 
   SvgPathPainter({
     required this.parts,
     this.selectedParts = const [],
     required this.highlightColor,
     required this.highlightStrokeWeight,
+    this.highlightStrokeColor,
   });
 
   @override
@@ -653,7 +1141,9 @@ class SvgPathPainter extends CustomPainter {
             : (selectedParts.contains(part)
             ? part.strokeWidth * highlightStrokeWeight
             : part.strokeWidth)
-        ..color = part.strokeColor;
+        ..color = selectedParts.contains(part)
+            ? (highlightStrokeColor ?? part.strokeColor)
+            : part.strokeColor;
 
       final fillPaint = Paint()
         ..style = PaintingStyle.fill
@@ -662,7 +1152,7 @@ class SvgPathPainter extends CustomPainter {
             : (selectedParts.contains(part) ? highlightColor : part.fillColor);
 
       try {
-        final path = parseSvgPathData(part.path);
+        final path = part.parsedPath;
         canvas.drawPath(path, strokePaint);
         canvas.drawPath(path, fillPaint);
       } catch (e) {}
