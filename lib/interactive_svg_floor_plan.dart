@@ -1,7 +1,6 @@
 library interactive_svg_floor_plan;
 
-import 'dart:developer';
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_drawing/path_drawing.dart';
@@ -68,6 +67,9 @@ class SvgPart {
   final String? type;
   final SvgPartType partType;
 
+  Rect? scaledRect;
+  Rect rect = Rect.zero;
+
   SvgPart({
     required this.id,
     required this.path,
@@ -78,7 +80,9 @@ class SvgPart {
     required this.name,
     this.type,
     required this.partType,
-  });
+  }) {
+    rect = parsedPath.getBounds();
+  }
 
   @override
   String toString() {
@@ -101,11 +105,25 @@ class SvgPart {
   @override
   int get hashCode {
     return id.hashCode ^
-    path.hashCode ^
-    fillColor.hashCode ^
-    strokeColor.hashCode ^
-    strokeWidth.hashCode ^
-    name.hashCode;
+        path.hashCode ^
+        fillColor.hashCode ^
+        strokeColor.hashCode ^
+        strokeWidth.hashCode ^
+        name.hashCode;
+  }
+
+  SvgPart copyWith({Rect? scaledRect}) {
+    return SvgPart(
+      id: id,
+      path: path,
+      parsedPath: parsedPath,
+      fillColor: fillColor,
+      strokeColor: strokeColor,
+      strokeWidth: strokeWidth,
+      name: name,
+      type: type,
+      partType: partType,
+    );
   }
 }
 
@@ -305,7 +323,7 @@ class InteractiveSVGFloorPlanController {
   List<SvgPart> _parts = [];
   List<SvgPart> _selectedParts = [];
   final TransformationController _transformationController =
-  TransformationController();
+      TransformationController();
   VoidCallback? _updateCallback;
   Size canvasSize = const Size(3000, 2250);
   Size canvasRealSize = const Size(3000, 2250);
@@ -389,25 +407,25 @@ class InteractiveSVGFloorPlanController {
 
     // Handle <rect> elements
     document.findAllElements('rect').forEach(
-            (element) => _parts.add(parseElementToSvgPart(element, 'rect')));
+        (element) => _parts.add(parseElementToSvgPart(element, 'rect')));
     // Handle <polygon> elements
     document.findAllElements('polygon').forEach(
-            (element) => _parts.add(parseElementToSvgPart(element, 'polygon')));
+        (element) => _parts.add(parseElementToSvgPart(element, 'polygon')));
     // Handle <polyline> elements
     document.findAllElements('polyline').forEach(
-            (element) => _parts.add(parseElementToSvgPart(element, 'polyline')));
+        (element) => _parts.add(parseElementToSvgPart(element, 'polyline')));
     // Handle <line> elements
     document.findAllElements('line').forEach(
-            (element) => _parts.add(parseElementToSvgPart(element, 'line')));
+        (element) => _parts.add(parseElementToSvgPart(element, 'line')));
     // Handle <circle> elements
     document.findAllElements('circle').forEach(
-            (element) => _parts.add(parseElementToSvgPart(element, 'circle')));
+        (element) => _parts.add(parseElementToSvgPart(element, 'circle')));
     // Handle <ellipse> elements
     document.findAllElements('ellipse').forEach(
-            (element) => _parts.add(parseElementToSvgPart(element, 'ellipse')));
+        (element) => _parts.add(parseElementToSvgPart(element, 'ellipse')));
     // Handle <path> elements
     document.findAllElements('path').forEach(
-            (element) => _parts.add(parseElementToSvgPart(element, 'path')));
+        (element) => _parts.add(parseElementToSvgPart(element, 'path')));
 
     setParts(_parts);
   }
@@ -421,11 +439,11 @@ class InteractiveSVGFloorPlanController {
       strokeColor = _borderColor!;
     }
     final double strokeWidth =
-    double.parse(element.getAttribute('stroke-width') ?? '2');
+        double.parse(element.getAttribute('stroke-width') ?? '2');
     final String name = element.getAttribute('name') ?? '';
     final String partTypeString = element.getAttribute('type') ?? '';
     final SvgPartType partType = SvgPartType.values.firstWhere(
-          (e) {
+      (e) {
         return e.toString().split('.').last == partTypeString;
       },
       orElse: () => SvgPartType.other,
@@ -455,26 +473,26 @@ class InteractiveSVGFloorPlanController {
       case 'polygon':
         final points = element.getAttribute('points') ?? '';
         path =
-        'M${points.split(' ').map((e) => e.replaceAll(',', ' ')).join(' L')} Z';
+            'M${points.split(' ').map((e) => e.replaceAll(',', ' ')).join(' L')} Z';
         break;
         final pointList =
-        points.split(RegExp(r'[\s,]+')).where((s) => s.isNotEmpty).toList();
+            points.split(RegExp(r'[\s,]+')).where((s) => s.isNotEmpty).toList();
         if (pointList.length % 2 != 0) {
           path = '';
         } else {
           path =
-          'M${pointList.asMap().entries.map((e) => '${e.value}${e.key % 2 == 0 ? ',' : ' '}').join()} Z';
+              'M${pointList.asMap().entries.map((e) => '${e.value}${e.key % 2 == 0 ? ',' : ' '}').join()} Z';
         }
         break;
       case 'polyline':
         final points = element.getAttribute('points') ?? '';
         final pointList =
-        points.split(RegExp(r'[\s,]+')).where((s) => s.isNotEmpty).toList();
+            points.split(RegExp(r'[\s,]+')).where((s) => s.isNotEmpty).toList();
         if (pointList.length % 2 != 0) {
           path = '';
         } else {
           path =
-          'M${pointList.asMap().entries.map((e) => '${e.value}${e.key % 2 == 0 ? ',' : ' '}').join()}';
+              'M${pointList.asMap().entries.map((e) => '${e.value}${e.key % 2 == 0 ? ',' : ' '}').join()}';
         }
         break;
       case 'line':
@@ -489,7 +507,7 @@ class InteractiveSVGFloorPlanController {
         final cy = double.tryParse(element.getAttribute('cy') ?? '0') ?? 0;
         final r = double.tryParse(element.getAttribute('r') ?? '0') ?? 0;
         path =
-        'M${cx + r},$cy A$r,$r 0 1,1 ${cx - r},$cy A$r,$r 0 1,1 ${cx + r},$cy';
+            'M${cx + r},$cy A$r,$r 0 1,1 ${cx - r},$cy A$r,$r 0 1,1 ${cx + r},$cy';
         break;
       case 'ellipse':
         final cx = double.tryParse(element.getAttribute('cx') ?? '0') ?? 0;
@@ -497,7 +515,7 @@ class InteractiveSVGFloorPlanController {
         final rx = double.tryParse(element.getAttribute('rx') ?? '0') ?? 0;
         final ry = double.tryParse(element.getAttribute('ry') ?? '0') ?? 0;
         path =
-        'M${cx + rx},$cy A$rx,$ry 0 1,1 ${cx - rx},$cy A$rx,$ry 0 1,1 ${cx + rx},$cy';
+            'M${cx + rx},$cy A$rx,$ry 0 1,1 ${cx - rx},$cy A$rx,$ry 0 1,1 ${cx + rx},$cy';
         break;
       case 'path':
         path = element.getAttribute('d') ?? '';
@@ -533,25 +551,19 @@ class InteractiveSVGFloorPlanController {
     }
     final position = _transformationController.value.getTranslation();
 
-    _transformationController.value = Matrix4.identity()
-      ..translate(position.x, position.y)
-      ..scale(scale + 0.1);
+    _transformationController.value = Matrix4.identity()..scale(scale + 0.1);
     _notifyUpdate();
   }
 
   void zoomOut() {
-    log('Zoom out');
     // _transformationController.value *= Matrix4.diagonal3Values(0.9, 0.9, 1);
     final scale = _transformationController.value.getMaxScaleOnAxis();
     if (scale < 1) {
-      log('Scale $scale');
       return;
     }
     final position = _transformationController.value.getTranslation();
 
-    _transformationController.value = Matrix4.identity()
-      ..translate(-position.x, -position.y)
-      ..scale(scale - 0.1);
+    _transformationController.value = Matrix4.identity()..scale(scale - 0.1);
     _notifyUpdate();
   }
 
@@ -620,6 +632,9 @@ class InteractiveSVGFloorPlan extends StatefulWidget {
   final Color highlightColor;
   final double highlightStrokeWeight;
   final Color? highlightStrokeColor;
+  final Color hoverColor;
+  final double hoverStrokeWeight;
+  final Color? hoverStrokeColor;
   final double fillOpacity;
   final void Function(List<SvgPart> parts) onMultiPartsSelected;
   final void Function(SvgPart part) onSinglePartSelected;
@@ -631,6 +646,7 @@ class InteractiveSVGFloorPlan extends StatefulWidget {
   final BoxFit fit;
   final double padding;
   final BorderRadius borderRadius;
+  final Color tooltipBackgroundColor;
 
   InteractiveSVGFloorPlan({
     super.key,
@@ -639,6 +655,9 @@ class InteractiveSVGFloorPlan extends StatefulWidget {
     this.highlightColor = Colors.red,
     this.highlightStrokeWeight = 2.0,
     this.highlightStrokeColor,
+    this.hoverColor = Colors.blue,
+    this.hoverStrokeWeight = 2.0,
+    this.hoverStrokeColor,
     this.fillOpacity = 1.0,
     required this.onMultiPartsSelected,
     required this.onSinglePartSelected,
@@ -650,6 +669,7 @@ class InteractiveSVGFloorPlan extends StatefulWidget {
     this.fit = BoxFit.contain,
     this.padding = 0.0,
     this.borderRadius = BorderRadius.zero,
+    this.tooltipBackgroundColor = const Color(0xFF0546C7),
   }) {
     assert(plan != null || controller != null);
   }
@@ -676,6 +696,9 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
   double scaleX = 1.0;
   double scaleY = 1.0;
 
+  double baseScaleX = 1.0;
+  double baseScaleY = 1.0;
+
   double translateX = 0.0;
   double translateY = 0.0;
 
@@ -683,6 +706,7 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
   bool disablePan = false;
 
   TapDownDetails? currentPositonDetails;
+  TapDownDetails? currentPositonDetails2;
 
   double maxWidth = 0.0;
   double maxHeight = 0.0;
@@ -690,8 +714,9 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
   double imageWidth = 0.0;
   double imageHeight = 0.0;
 
-  double reScaledX = 1.0;
-  double reScaledY = 1.0;
+  Matrix4 oldTransform = Matrix4.identity();
+
+  SvgPart? ajaccio;
 
   @override
   void initState() {
@@ -701,169 +726,201 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
     _controller.setUpdateCallback(() {
       setState(() {});
     });
-    // WidgetsBinding.instance.addPostFrameCallback((_) async {
-    //   // await loadSvgImage(svgImage: widget.plan);
-    //   setState(() {});
-    // });
+    _controller.transformationController.addListener(() {
+      if (oldTransform.getMaxScaleOnAxis() ==
+          _controller.transformationController.value.getMaxScaleOnAxis()) {
+        return;
+      }
+      oldTransform = _controller.transformationController.value;
+      final scale =
+          _controller.transformationController.value.getMaxScaleOnAxis();
+      for (int i = 0; i < _controller.parts.length; i++) {
+        final part = _controller.parts[i];
+        if (part.partType != SvgPartType.room) continue;
+        final bounds = part.parsedPath.getBounds();
+        Rect scaledRect = Rect.fromPoints(
+          Offset(bounds.left * scaleX * scale, bounds.top * scaleY * scale),
+          Offset(bounds.right * scaleX * scale, bounds.bottom * scaleY * scale),
+        );
+
+        _controller.parts[i].scaledRect = scaledRect;
+        if (part.name == "Ajaccio") {
+          ajaccio = _controller.parts[i];
+        }
+      }
+      setState(() {});
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(const Duration(milliseconds: 500), () {
+        _controller.zoomIn();
+        _controller.zoomOut();
+      });
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, constraints) {
-      maxWidth = constraints.maxWidth;
-      maxHeight = constraints.maxHeight;
+    return Material(
+      borderRadius: widget.borderRadius,
+      // color: Colors.transparent,
+      child: LayoutBuilder(builder: (context, constraints) {
+        maxWidth = constraints.maxWidth;
+        maxHeight = constraints.maxHeight;
 
-      reScaledX = maxWidth / _controller.canvasSize.width;
-      reScaledY = maxHeight / _controller.canvasSize.height;
+        baseScaleX = maxWidth / _controller.canvasSize.width;
+        baseScaleY = maxHeight / _controller.canvasSize.height;
 
-      double ratioFromPaddingX =
-          1.0 - (widget.padding / _controller.canvasSize.width);
-      double ratioFromPaddingY =
-          1.0 - (widget.padding / _controller.canvasSize.height);
-      scaleX = ratioFromPaddingX * reScaledX;
-      scaleY = ratioFromPaddingY * reScaledY;
+        double ratioFromPaddingX =
+            1.0 - (widget.padding / _controller.canvasSize.width);
+        double ratioFromPaddingY =
+            1.0 - (widget.padding / _controller.canvasSize.height);
+        baseScaleX = ratioFromPaddingX * baseScaleX;
+        baseScaleY = ratioFromPaddingY * baseScaleY;
+        scaleX = baseScaleX;
+        scaleY = baseScaleY;
 
-      _handleFit(maxWidth, maxHeight);
+        _handleFit();
 
-      imageWidth = _controller.canvasSize.width * scaleX;
-      imageHeight = _controller.canvasSize.height * scaleY;
+        imageWidth = _controller.canvasSize.width * scaleX;
+        imageHeight = _controller.canvasSize.height * scaleY;
 
-      translateY = ((maxHeight - imageHeight) / 2) / scaleY;
-      translateX = ((maxWidth - imageWidth) / 2) / scaleX;
+        translateX = ((maxWidth - imageWidth) / 2) / scaleX;
+        translateY = ((maxHeight - imageHeight) / 2) / scaleY;
 
-      Widget child = MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: GestureDetector(
-          onTapDown: (details) {
-            currentPositonDetails = details;
-          },
-          onTap: () {
-            if (currentPositonDetails != null) {
-              _singleSelectTapDown(currentPositonDetails!);
-            }
-          },
-          onDoubleTap: () {
-            // Reset the transformation controller
-            _controller.transformationController.value = Matrix4.identity();
-          },
-          onLongPressStart: _multiSelectTapDown,
-          onLongPressMoveUpdate: (details) {
-            if (!widget.multiSelect) return;
-            setState(() {
-              disablePan = true;
-              _isSelecting = true;
-              _startSelection ??= details.localPosition;
-              _endSelection = details.localPosition;
-            });
-          },
-          onLongPressEnd: (details) {
-            if (!widget.multiSelect) return;
-            _selectPartsInRect(_getSelectionRect());
-            setState(() {
-              disablePan = false;
-              _startSelection = null;
-              _endSelection = null;
-              _isSelecting = false;
-            });
-          },
-          child: SizedBox(
-            height: maxHeight,
-            width: maxWidth,
-            child: InteractiveViewer(
-              boundaryMargin: const EdgeInsets.all(double.infinity),
-              minScale: .8,
-              maxScale: 4.5,
-              panEnabled: true,
-              scaleEnabled: true,
-              panAxis: PanAxis.aligned,
-              transformationController: _controller.transformationController,
-              child: ClipRRect(
-                borderRadius: widget.borderRadius,
-                child: Transform(
-                  transform: Matrix4.identity()
-                    ..scale(scaleX, scaleY)
-                    ..translate(translateX, translateY),
-                  child: CustomPaint(
-                    painter: SvgPathPainter(
-                      parts: _controller.parts,
-                      selectedParts: _controller.parts
-                          .where((part) =>
-                      widget.selectedParts.contains(part.id) ||
-                          _controller.currentlyHoveredPart == part)
-                          .toList(),
-                      highlightColor: widget.highlightColor,
-                      highlightStrokeWeight: widget.highlightStrokeWeight,
-                      highlightStrokeColor: widget.highlightStrokeColor,
+        Widget child = MouseRegion(
+          cursor: SystemMouseCursors.click,
+          onHover: _displayTooltip,
+          child: GestureDetector(
+            onTapDown: (details) {
+              currentPositonDetails2 = details;
+              setState(() {});
+            },
+            onTap: () {
+              if (currentPositonDetails2 != null) {
+                _singleSelectTapDown(currentPositonDetails2!);
+              }
+            },
+            onDoubleTap: () {
+              // Reset the transformation controller
+              _controller.transformationController.value = Matrix4.identity();
+            },
+            onLongPressStart: _multiSelectTapDown,
+            onLongPressMoveUpdate: (details) {
+              if (!widget.multiSelect) return;
+              setState(() {
+                disablePan = true;
+                _isSelecting = true;
+                _startSelection ??= details.localPosition;
+                _endSelection = details.localPosition;
+              });
+            },
+            onLongPressEnd: (details) {
+              if (!widget.multiSelect) return;
+              _selectPartsInRect(_getSelectionRect());
+              setState(() {
+                disablePan = false;
+                _startSelection = null;
+                _endSelection = null;
+                _isSelecting = false;
+              });
+            },
+            child: SizedBox(
+              height: maxHeight,
+              width: maxWidth,
+              child: InteractiveViewer(
+                boundaryMargin: const EdgeInsets.all(double.infinity),
+                minScale: .8,
+                maxScale: 4.5,
+                panEnabled: true,
+                scaleEnabled: true,
+                panAxis: PanAxis.aligned,
+                transformationController: _controller.transformationController,
+                child: ClipRRect(
+                  borderRadius: widget.borderRadius,
+                  child: Transform(
+                    transform: Matrix4.identity()
+                      ..scale(scaleX, scaleY)
+                      ..translate(translateX, translateY),
+                    child: CustomPaint(
+                      painter: SvgPathPainter(
+                        parts: _controller.parts,
+                        hoveredPart:
+                            _controller.currentlyHoveredPart != null && kIsWeb
+                                ? _controller.currentlyHoveredPart
+                                : null,
+                        selectedParts: _controller.parts
+                            .where(
+                              (part) => widget.selectedParts.contains(part.id),
+                            )
+                            .toList(),
+                        highlightColor: widget.highlightColor,
+                        highlightStrokeWeight: widget.highlightStrokeWeight,
+                        highlightStrokeColor: widget.highlightStrokeColor,
+                        hoverColor: widget.hoverColor,
+                        hoverStrokeWeight: widget.hoverStrokeWeight,
+                        hoverStrokeColor: widget.hoverStrokeColor,
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
-      );
+        );
 
-      return !widget.multiSelect
-          ? child
-          : Stack(
-        children: [
-          child,
-          if (_isSelecting &&
-              _startSelection != null &&
-              _endSelection != null &&
-              widget.multiSelect) ...[
-            CustomPaint(
-              painter: SelectionRectPainter(
-                rect: _getSelectionRect(),
+        return Stack(
+          children: [
+            child,
+            if (_isSelecting &&
+                _startSelection != null &&
+                _endSelection != null &&
+                widget.multiSelect) ...[
+              CustomPaint(
+                painter: SelectionRectPainter(
+                  rect: _getSelectionRect(),
+                ),
               ),
-            ),
+            ],
+            _buildTooltip(currentPositonDetails),
           ],
-        ],
-      );
-    });
+        );
+      }),
+    );
   }
 
-  void _singleSelectTapDown(TapDownDetails details) {
-    log("\n\n\n");
-    // Get the current transformation values
-    Vector3 currentTranslation =
-    _controller.transformationController.value.getTranslation();
-    // double currentScaleFactor =
-    // _controller.transformationController.value.getMaxScaleOnAxis();
+  void _singleSelectTapDown(TapDownDetails event) {
     Matrix4 matrix = _controller.transformationController.value;
-    double currentScaleFactorX = matrix[0];
-    double currentScaleFactorY = matrix[5];
+    Matrix4 inverseMatrix = Matrix4.inverted(matrix);
 
-    double moveXtoPlanTopLeft = details.localPosition.dx - translateX * scaleX;
-    double moveYtoPlanTopLeft = details.localPosition.dy - translateY * scaleY;
+    // Get the current transformation values from inverse matrix
+    Vector3 currentTranslation = inverseMatrix.getTranslation();
+    double currentScaleFactor = inverseMatrix.getMaxScaleOnAxis();
 
-    double localX = moveXtoPlanTopLeft - currentTranslation.x;
-    double localY = moveYtoPlanTopLeft - currentTranslation.y;
+    double moveXtoPlanTopLeft =
+        event.localPosition.dx - translateX * scaleX / currentScaleFactor;
+    double moveYtoPlanTopLeft =
+        event.localPosition.dy - translateY * scaleY / currentScaleFactor;
+
+    double localX =
+        (moveXtoPlanTopLeft + currentTranslation.x / currentScaleFactor);
+    double localY =
+        (moveYtoPlanTopLeft + currentTranslation.y / currentScaleFactor);
 
     Offset localPosition = Offset(localX, localY);
-    log('Local Position: ${localPosition.dx}, ${localPosition.dy}');
 
-    // Iterate over the parts and check if the local position is contained within the path of each part
     for (var part in _controller.parts) {
-      final path = part.parsedPath;
-      final bounds = path.getBounds();
-      final scaledRect = Rect.fromPoints(
-        Offset(bounds.left * scaleX * currentScaleFactorX, bounds.top * scaleY * currentScaleFactorY),
-        Offset(bounds.right * scaleX * currentScaleFactorX,
-            bounds.bottom * scaleY * currentScaleFactorY),
-      );
-      // if (part.name == "Ajaccio") {
-      //   log('Scaled Rect: $scaledRect');
-      // }
-      if (part.name == "Porto-Vecchio") {
-        log(
-          '{\n\tLeft: ${scaledRect.left} \n\tRight: ${scaledRect.right}\n\tTop: ${bounds.top * scaleY} \n\tBottom: ${bounds.bottom * scaleY}\n}',
-          name: 'Porto-Vecchio',
-        );
-      }
-      if (scaledRect.contains(localPosition) && part.id != null) {
-        widget.onSinglePartSelected(part);
-        // break;
+      if (part.partType != SvgPartType.room) continue;
+      if (part.scaledRect != null) {
+        final scaledRect = part.scaledRect!;
+        if (scaledRect.contains(localPosition) && part.id != null) {
+          widget.onSinglePartSelected(part);
+          _controller.currentlyHoveredPart = part;
+          setState(() {});
+          break;
+        } else {
+          _controller.currentlyHoveredPart = null;
+          setState(() {});
+        }
       }
     }
   }
@@ -884,9 +941,9 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
 
   void _selectPartsInRect(Rect selectionRect) {
     Vector3 currentTranslation =
-    _controller.transformationController.value.getTranslation();
+        _controller.transformationController.value.getTranslation();
     double currentScaleFactor =
-    _controller.transformationController.value.getMaxScaleOnAxis();
+        _controller.transformationController.value.getMaxScaleOnAxis();
 
     double moveLefttoPlanTopLeft = selectionRect.left - translateX * scaleX;
     double moveToptoPlanTopLeft = selectionRect.top - translateY * scaleY;
@@ -918,11 +975,14 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
 
     List<SvgPart> selected = [];
     for (var part in _controller.parts) {
+      if (part.partType != SvgPartType.room) continue;
       final path = part.parsedPath;
       final bounds = path.getBounds();
       final scaledRect = Rect.fromPoints(
-        Offset(bounds.left * scaleX * currentScaleFactor, bounds.top * scaleY * currentScaleFactor),
-        Offset(bounds.right * scaleX * currentScaleFactor, bounds.bottom * scaleY * currentScaleFactor),
+        Offset(bounds.left * scaleX * currentScaleFactor,
+            bounds.top * scaleY * currentScaleFactor),
+        Offset(bounds.right * scaleX * currentScaleFactor,
+            bounds.bottom * scaleY * currentScaleFactor),
       );
       if (scaledRect.overlaps(newRect)) {
         selected.add(part);
@@ -935,7 +995,7 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
         _selectedParts.whereOrEmpty((element) => element.id != null).toList());
   }
 
-  void _handleFit(double maxWidth, double maxHeight) {
+  void _handleFit() {
     switch (widget.fit) {
       case BoxFit.contain:
         if (scaleY > scaleX) {
@@ -976,6 +1036,56 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
       default:
         break;
     }
+  }
+
+  _buildTooltip(TapDownDetails? currentPositonDetails) {
+    // Check if the currently hovered part is not null
+    if (_controller.currentlyHoveredPart == null) return Container();
+    // Check if the current position details are not null
+    if (currentPositonDetails == null) return Container();
+    // Check if current position details is at the top side of the screen
+    bool isTop = currentPositonDetails.localPosition.dy < imageHeight / 2;
+    bool isLeft = currentPositonDetails.localPosition.dx < imageWidth / 2;
+
+    // calculate the position of the tooltip
+    double tooltipTop = isTop
+        ? currentPositonDetails.globalPosition.dy + 30
+        : currentPositonDetails.globalPosition.dy - 300;
+    double tooltipLeft = isLeft
+        ? currentPositonDetails.globalPosition.dx + 60
+        : currentPositonDetails.globalPosition.dx - 60;
+
+    Widget child = Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: widget.tooltipBackgroundColor,
+        borderRadius: BorderRadius.circular(8.0),
+      ),
+      child: Text(
+        "Salle: ${_controller.currentlyHoveredPart!.name}"
+        "\n\nGlobal Position: ${currentPositonDetails.localPosition.dx}, ${currentPositonDetails.localPosition.dy}"
+        "\n\nLocal Position: ${currentPositonDetails.localPosition.dx}, ${currentPositonDetails.localPosition.dy}"
+        "\n\n\nRect: ${_controller.currentlyHoveredPart!.scaledRect}",
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 14,
+        ),
+      ),
+    );
+
+    if (!isTop) {
+      return Positioned(
+        top: tooltipTop,
+        left: tooltipLeft,
+        child: child,
+      );
+    }
+
+    return Positioned(
+      top: tooltipTop,
+      left: tooltipLeft,
+      child: child,
+    );
   }
 
 // SvgPart parseElementToSvgPart(XmlElement element, String type) {
@@ -1112,21 +1222,70 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
 //
 //   return parts;
 // }
+
+  void _displayTooltip(event) {
+    Matrix4 matrix = _controller.transformationController.value;
+    Matrix4 inverseMatrix = Matrix4.inverted(matrix);
+
+    // Get the current transformation values from inverse matrix
+    Vector3 currentTranslation = inverseMatrix.getTranslation();
+    double currentScaleFactor = inverseMatrix.getMaxScaleOnAxis();
+
+    double moveXtoPlanTopLeft =
+        event.localPosition.dx - translateX * scaleX / currentScaleFactor;
+    double moveYtoPlanTopLeft =
+        event.localPosition.dy - translateY * scaleY / currentScaleFactor;
+
+    double localX =
+        (moveXtoPlanTopLeft + currentTranslation.x / currentScaleFactor);
+    double localY =
+        (moveYtoPlanTopLeft + currentTranslation.y / currentScaleFactor);
+
+    Offset localPosition = Offset(localX, localY);
+
+    currentPositonDetails = TapDownDetails(
+      globalPosition: event.localPosition,
+      localPosition: localPosition,
+    );
+
+    for (var part in _controller.parts) {
+      if (part.partType != SvgPartType.room) continue;
+      if (part.scaledRect != null) {
+        final scaledRect = part.scaledRect!;
+        if (scaledRect.contains(localPosition) && part.id != null) {
+          _controller.currentlyHoveredPart = part;
+          setState(() {});
+          break;
+        } else {
+          _controller.currentlyHoveredPart = null;
+          setState(() {});
+        }
+      }
+    }
+  }
 }
 
 class SvgPathPainter extends CustomPainter {
   final List<SvgPart> parts;
   final List<SvgPart> selectedParts;
+  final SvgPart? hoveredPart;
   final Color highlightColor;
+  final Color hoverColor;
   final double highlightStrokeWeight;
+  final double hoverStrokeWeight;
   final Color? highlightStrokeColor;
+  final Color? hoverStrokeColor;
 
   SvgPathPainter({
     required this.parts,
     this.selectedParts = const [],
+    this.hoveredPart,
     required this.highlightColor,
+    required this.hoverColor,
     required this.highlightStrokeWeight,
+    required this.hoverStrokeWeight,
     this.highlightStrokeColor,
+    this.hoverStrokeColor,
   });
 
   @override
@@ -1137,11 +1296,16 @@ class SvgPathPainter extends CustomPainter {
         ..strokeWidth = selectedParts.isEmpty
             ? part.strokeWidth
             : (selectedParts.contains(part)
-            ? part.strokeWidth * highlightStrokeWeight
-            : part.strokeWidth)
+                ? part.strokeWidth * highlightStrokeWeight
+                : part.strokeWidth)
         ..color = selectedParts.contains(part)
             ? (highlightStrokeColor ?? part.strokeColor)
             : part.strokeColor;
+
+      final hoverStrokePaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = hoverStrokeWeight
+        ..color = hoverStrokeColor ?? part.strokeColor;
 
       final fillPaint = Paint()
         ..style = PaintingStyle.fill
@@ -1149,10 +1313,18 @@ class SvgPathPainter extends CustomPainter {
             ? part.fillColor
             : (selectedParts.contains(part) ? highlightColor : part.fillColor);
 
+      final hoveredPaint = Paint()
+        ..style = PaintingStyle.fill
+        ..color = hoverColor.withOpacity(0.5);
+
       try {
         final path = part.parsedPath;
-        canvas.drawPath(path, strokePaint);
         canvas.drawPath(path, fillPaint);
+        canvas.drawPath(path, strokePaint);
+        if (hoveredPart != null && hoveredPart == part) {
+          canvas.drawPath(path, hoveredPaint);
+          canvas.drawPath(path, hoverStrokePaint);
+        }
       } catch (e) {}
     }
   }
