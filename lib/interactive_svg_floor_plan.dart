@@ -105,11 +105,11 @@ class SvgPart {
   @override
   int get hashCode {
     return id.hashCode ^
-        path.hashCode ^
-        fillColor.hashCode ^
-        strokeColor.hashCode ^
-        strokeWidth.hashCode ^
-        name.hashCode;
+    path.hashCode ^
+    fillColor.hashCode ^
+    strokeColor.hashCode ^
+    strokeWidth.hashCode ^
+    name.hashCode;
   }
 
   SvgPart copyWith({Rect? scaledRect}) {
@@ -323,7 +323,7 @@ class InteractiveSVGFloorPlanController {
   List<SvgPart> _parts = [];
   List<SvgPart> _selectedParts = [];
   final TransformationController _transformationController =
-      TransformationController();
+  TransformationController();
   VoidCallback? _updateCallback;
   Size canvasSize = const Size(3000, 2250);
   Size canvasRealSize = const Size(3000, 2250);
@@ -407,25 +407,25 @@ class InteractiveSVGFloorPlanController {
 
     // Handle <rect> elements
     document.findAllElements('rect').forEach(
-        (element) => _parts.add(parseElementToSvgPart(element, 'rect')));
+            (element) => _parts.add(parseElementToSvgPart(element, 'rect')));
     // Handle <polygon> elements
     document.findAllElements('polygon').forEach(
-        (element) => _parts.add(parseElementToSvgPart(element, 'polygon')));
+            (element) => _parts.add(parseElementToSvgPart(element, 'polygon')));
     // Handle <polyline> elements
     document.findAllElements('polyline').forEach(
-        (element) => _parts.add(parseElementToSvgPart(element, 'polyline')));
+            (element) => _parts.add(parseElementToSvgPart(element, 'polyline')));
     // Handle <line> elements
     document.findAllElements('line').forEach(
-        (element) => _parts.add(parseElementToSvgPart(element, 'line')));
+            (element) => _parts.add(parseElementToSvgPart(element, 'line')));
     // Handle <circle> elements
     document.findAllElements('circle').forEach(
-        (element) => _parts.add(parseElementToSvgPart(element, 'circle')));
+            (element) => _parts.add(parseElementToSvgPart(element, 'circle')));
     // Handle <ellipse> elements
     document.findAllElements('ellipse').forEach(
-        (element) => _parts.add(parseElementToSvgPart(element, 'ellipse')));
+            (element) => _parts.add(parseElementToSvgPart(element, 'ellipse')));
     // Handle <path> elements
     document.findAllElements('path').forEach(
-        (element) => _parts.add(parseElementToSvgPart(element, 'path')));
+            (element) => _parts.add(parseElementToSvgPart(element, 'path')));
 
     setParts(_parts);
   }
@@ -439,11 +439,11 @@ class InteractiveSVGFloorPlanController {
       strokeColor = _borderColor!;
     }
     final double strokeWidth =
-        double.parse(element.getAttribute('stroke-width') ?? '2');
+    double.parse(element.getAttribute('stroke-width') ?? '2');
     final String name = element.getAttribute('name') ?? '';
     final String partTypeString = element.getAttribute('type') ?? '';
     final SvgPartType partType = SvgPartType.values.firstWhere(
-      (e) {
+          (e) {
         return e.toString().split('.').last == partTypeString;
       },
       orElse: () => SvgPartType.other,
@@ -473,26 +473,26 @@ class InteractiveSVGFloorPlanController {
       case 'polygon':
         final points = element.getAttribute('points') ?? '';
         path =
-            'M${points.split(' ').map((e) => e.replaceAll(',', ' ')).join(' L')} Z';
+        'M${points.split(' ').map((e) => e.replaceAll(',', ' ')).join(' L')} Z';
         break;
         final pointList =
-            points.split(RegExp(r'[\s,]+')).where((s) => s.isNotEmpty).toList();
+        points.split(RegExp(r'[\s,]+')).where((s) => s.isNotEmpty).toList();
         if (pointList.length % 2 != 0) {
           path = '';
         } else {
           path =
-              'M${pointList.asMap().entries.map((e) => '${e.value}${e.key % 2 == 0 ? ',' : ' '}').join()} Z';
+          'M${pointList.asMap().entries.map((e) => '${e.value}${e.key % 2 == 0 ? ',' : ' '}').join()} Z';
         }
         break;
       case 'polyline':
         final points = element.getAttribute('points') ?? '';
         final pointList =
-            points.split(RegExp(r'[\s,]+')).where((s) => s.isNotEmpty).toList();
+        points.split(RegExp(r'[\s,]+')).where((s) => s.isNotEmpty).toList();
         if (pointList.length % 2 != 0) {
           path = '';
         } else {
           path =
-              'M${pointList.asMap().entries.map((e) => '${e.value}${e.key % 2 == 0 ? ',' : ' '}').join()}';
+          'M${pointList.asMap().entries.map((e) => '${e.value}${e.key % 2 == 0 ? ',' : ' '}').join()}';
         }
         break;
       case 'line':
@@ -507,7 +507,7 @@ class InteractiveSVGFloorPlanController {
         final cy = double.tryParse(element.getAttribute('cy') ?? '0') ?? 0;
         final r = double.tryParse(element.getAttribute('r') ?? '0') ?? 0;
         path =
-            'M${cx + r},$cy A$r,$r 0 1,1 ${cx - r},$cy A$r,$r 0 1,1 ${cx + r},$cy';
+        'M${cx + r},$cy A$r,$r 0 1,1 ${cx - r},$cy A$r,$r 0 1,1 ${cx + r},$cy';
         break;
       case 'ellipse':
         final cx = double.tryParse(element.getAttribute('cx') ?? '0') ?? 0;
@@ -515,7 +515,7 @@ class InteractiveSVGFloorPlanController {
         final rx = double.tryParse(element.getAttribute('rx') ?? '0') ?? 0;
         final ry = double.tryParse(element.getAttribute('ry') ?? '0') ?? 0;
         path =
-            'M${cx + rx},$cy A$rx,$ry 0 1,1 ${cx - rx},$cy A$rx,$ry 0 1,1 ${cx + rx},$cy';
+        'M${cx + rx},$cy A$rx,$ry 0 1,1 ${cx - rx},$cy A$rx,$ry 0 1,1 ${cx + rx},$cy';
         break;
       case 'path':
         path = element.getAttribute('d') ?? '';
@@ -733,7 +733,7 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
       }
       oldTransform = _controller.transformationController.value;
       final scale =
-          _controller.transformationController.value.getMaxScaleOnAxis();
+      _controller.transformationController.value.getMaxScaleOnAxis();
       for (int i = 0; i < _controller.parts.length; i++) {
         final part = _controller.parts[i];
         if (part.partType != SvgPartType.room) continue;
@@ -845,13 +845,13 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
                       painter: SvgPathPainter(
                         parts: _controller.parts,
                         hoveredPart:
-                            _controller.currentlyHoveredPart != null && kIsWeb
-                                ? _controller.currentlyHoveredPart
-                                : null,
+                        _controller.currentlyHoveredPart != null && kIsWeb
+                            ? _controller.currentlyHoveredPart
+                            : null,
                         selectedParts: _controller.parts
                             .where(
                               (part) => widget.selectedParts.contains(part.id),
-                            )
+                        )
                             .toList(),
                         highlightColor: widget.highlightColor,
                         highlightStrokeWeight: widget.highlightStrokeWeight,
@@ -902,9 +902,9 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
         event.localPosition.dy - translateY * scaleY / currentScaleFactor;
 
     double localX =
-        (moveXtoPlanTopLeft + currentTranslation.x / currentScaleFactor);
+    (moveXtoPlanTopLeft + currentTranslation.x / currentScaleFactor);
     double localY =
-        (moveYtoPlanTopLeft + currentTranslation.y / currentScaleFactor);
+    (moveYtoPlanTopLeft + currentTranslation.y / currentScaleFactor);
 
     Offset localPosition = Offset(localX, localY);
 
@@ -940,54 +940,38 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
   }
 
   void _selectPartsInRect(Rect selectionRect) {
-    Vector3 currentTranslation =
-        _controller.transformationController.value.getTranslation();
-    double currentScaleFactor =
-        _controller.transformationController.value.getMaxScaleOnAxis();
+    Matrix4 matrix = _controller.transformationController.value;
+    Matrix4 inverseMatrix = Matrix4.inverted(matrix);
 
-    double moveLefttoPlanTopLeft = selectionRect.left - translateX * scaleX;
-    double moveToptoPlanTopLeft = selectionRect.top - translateY * scaleY;
+    Vector3 currentTranslation = inverseMatrix.getTranslation();
+    double currentScaleFactor = inverseMatrix.getMaxScaleOnAxis();
 
-    double addTransTranslationToLeft =
-        moveLefttoPlanTopLeft - currentTranslation.x;
-    double addTranTranslationToTop =
-        moveToptoPlanTopLeft - currentTranslation.y;
+    double moveLeft =
+        selectionRect.left - translateX * scaleX / currentScaleFactor;
+    double moveTop =
+        selectionRect.top - translateY * scaleY / currentScaleFactor;
+    double moveRight =
+        selectionRect.right - translateX * scaleX / currentScaleFactor;
+    double moveBottom =
+        selectionRect.bottom - translateY * scaleY / currentScaleFactor;
 
-    Offset start = Offset(
-      addTransTranslationToLeft,
-      addTranTranslationToTop,
-    );
+    double left = moveLeft + currentTranslation.x / currentScaleFactor;
+    double top = moveTop + currentTranslation.y / currentScaleFactor;
+    double right = moveRight + currentTranslation.x / currentScaleFactor;
+    double bottom = moveBottom + currentTranslation.y / currentScaleFactor;
 
-    double moveRighttoPlanTopLeft = selectionRect.right - translateX * scaleX;
-    double moveBottomtoPlanTopLeft = selectionRect.bottom - translateY * scaleY;
+    Rect newRect = Rect.fromLTRB(left, top, right, bottom);
 
-    double addTransTranslationToRight =
-        moveRighttoPlanTopLeft - currentTranslation.x;
-    double addTranTranslationToBottom =
-        moveBottomtoPlanTopLeft - currentTranslation.y;
-
-    Offset end = Offset(
-      addTransTranslationToRight,
-      addTranTranslationToBottom,
-    );
-
-    Rect newRect = Rect.fromPoints(start, end);
 
     List<SvgPart> selected = [];
     for (var part in _controller.parts) {
       if (part.partType != SvgPartType.room) continue;
-      final path = part.parsedPath;
-      final bounds = path.getBounds();
-      final scaledRect = Rect.fromPoints(
-        Offset(bounds.left * scaleX * currentScaleFactor,
-            bounds.top * scaleY * currentScaleFactor),
-        Offset(bounds.right * scaleX * currentScaleFactor,
-            bounds.bottom * scaleY * currentScaleFactor),
-      );
+      final scaledRect = part.scaledRect!;
       if (scaledRect.overlaps(newRect)) {
         selected.add(part);
       }
     }
+
     setState(() {
       _selectedParts = selected;
     });
@@ -1063,9 +1047,9 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
       ),
       child: Text(
         "Salle: ${_controller.currentlyHoveredPart!.name}"
-        "\n\nGlobal Position: ${currentPositonDetails.localPosition.dx}, ${currentPositonDetails.localPosition.dy}"
-        "\n\nLocal Position: ${currentPositonDetails.localPosition.dx}, ${currentPositonDetails.localPosition.dy}"
-        "\n\n\nRect: ${_controller.currentlyHoveredPart!.scaledRect}",
+            "\n\nGlobal Position: ${currentPositonDetails.localPosition.dx}, ${currentPositonDetails.localPosition.dy}"
+            "\n\nLocal Position: ${currentPositonDetails.localPosition.dx}, ${currentPositonDetails.localPosition.dy}"
+            "\n\n\nRect: ${_controller.currentlyHoveredPart!.scaledRect}",
         style: const TextStyle(
           color: Colors.white,
           fontSize: 14,
@@ -1237,9 +1221,9 @@ class _InteractiveSVGFloorPlanState extends State<InteractiveSVGFloorPlan> {
         event.localPosition.dy - translateY * scaleY / currentScaleFactor;
 
     double localX =
-        (moveXtoPlanTopLeft + currentTranslation.x / currentScaleFactor);
+    (moveXtoPlanTopLeft + currentTranslation.x / currentScaleFactor);
     double localY =
-        (moveYtoPlanTopLeft + currentTranslation.y / currentScaleFactor);
+    (moveYtoPlanTopLeft + currentTranslation.y / currentScaleFactor);
 
     Offset localPosition = Offset(localX, localY);
 
@@ -1296,8 +1280,8 @@ class SvgPathPainter extends CustomPainter {
         ..strokeWidth = selectedParts.isEmpty
             ? part.strokeWidth
             : (selectedParts.contains(part)
-                ? part.strokeWidth * highlightStrokeWeight
-                : part.strokeWidth)
+            ? part.strokeWidth * highlightStrokeWeight
+            : part.strokeWidth)
         ..color = selectedParts.contains(part)
             ? (highlightStrokeColor ?? part.strokeColor)
             : part.strokeColor;
